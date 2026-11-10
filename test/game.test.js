@@ -157,3 +157,36 @@ test('redo of the first move restores the same mine layout', () => {
   g.redo();
   assert.strictEqual(snapshot(g), after);
 });
+
+// 3x3 with mines at opposite corners; (0,1) is a "1" next to the (0,0) mine.
+const corners = () => { const g = new Game(3, 3, 2); g.setMines([[0, 0], [2, 2]]); g.reveal(0, 1); return g; };
+
+test('chord opens unflagged neighbours when flags match, in one undo step', () => {
+  const g = corners();
+  g.toggleFlag(0, 0);
+  const before = snapshot(g), n = g.history.length;
+  assert.strictEqual(g.chord(0, 1), true);
+  assert.ok(g.cells[1][0].revealed && g.cells[1][1].revealed && g.cells[1][2].revealed && g.cells[0][2].revealed);
+  assert.strictEqual(g.status, 'playing');
+  assert.strictEqual(g.history.length, n + 1);
+  g.undo();
+  assert.strictEqual(snapshot(g), before);
+});
+
+test('chord does nothing when flag count differs, on hidden cells, or on zeros', () => {
+  const g = corners();
+  const n = g.history.length;
+  assert.strictEqual(g.chord(0, 1), false); // 0 flags, number is 1
+  assert.strictEqual(g.chord(2, 0), false); // hidden
+  assert.strictEqual(g.history.length, n);
+});
+
+test('chord with a wrong flag hits the mine and loses; undo recovers', () => {
+  const g = corners();
+  g.toggleFlag(1, 2); // wrong
+  g.chord(0, 1);
+  assert.strictEqual(g.status, 'lost');
+  assert.deepStrictEqual(g.exploded, { r: 0, c: 0 });
+  g.undo();
+  assert.strictEqual(g.status, 'playing');
+});

@@ -57,7 +57,7 @@
                minesPlaced: this.minesPlaced, exploded: this.exploded && { ...this.exploded } };
     }
 
-    // Left click. Returns true if the game state changed.
+    // Left click on a hidden cell. Returns true if the game state changed.
     reveal(r, c) {
       if (this.status !== 'playing') return false;
       const cell = this.cells[r][c];
@@ -66,8 +66,38 @@
       if (!this.minesPlaced) this.placeMines(r, c);
       this.history.push(snap);                // one push per click, however many cells open
       this.redoStack = [];                    // a new move invalidates redo
-      if (cell.mine) { cell.revealed = true; this.exploded = { r, c }; this.status = 'lost'; return true; }
+      this._open(r, c);
+      this._checkWin();
+      return true;
+    }
 
+    // Chord: click a revealed number whose flag count equals its number -> open all its unflagged neighbours.
+    // Wrong flags can open a mine, which loses (standard rules). One undo step for the whole chord.
+    chord(r, c) {
+      if (this.status !== 'playing') return false;
+      const cell = this.cells[r][c];
+      if (!cell.revealed || cell.adjacent === 0) return false;
+      const around = this.neighbors(r, c);
+      if (around.filter(([y, x]) => this.cells[y][x].flagged).length !== cell.adjacent) return false;
+      const targets = around.filter(([y, x]) => !this.cells[y][x].revealed && !this.cells[y][x].flagged);
+      if (targets.length === 0) return false;
+      this.history.push(this._snapshot());
+      this.redoStack = [];
+      for (const [y, x] of targets) this._open(y, x);
+      this._checkWin();
+      return true;
+    }
+
+    // Open one cell (no snapshot). A mine ends the game; otherwise flood-fill.
+    _open(r, c) {
+      const cell = this.cells[r][c];
+      if (cell.revealed || cell.flagged) return;
+      if (cell.mine) {
+        cell.revealed = true;
+        if (!this.exploded) this.exploded = { r, c };
+        this.status = 'lost';
+        return;
+      }
       // Flood-fill: open the cell; if it has 0 adjacent mines, open its neighbours too (iterative, no recursion).
       const stack = [[r, c]];
       while (stack.length) {
@@ -77,11 +107,13 @@
         cur.revealed = true;
         if (cur.adjacent === 0) stack.push(...this.neighbors(y, x));
       }
-      if (this._allSafeRevealed()) {
+    }
+
+    _checkWin() {
+      if (this.status === 'playing' && this._allSafeRevealed()) {
         this.status = 'won';
         for (const row of this.cells) for (const k of row) if (k.mine) k.flagged = true;
       }
-      return true;
     }
 
     // Right click. Flagging is also a single undoable move.
