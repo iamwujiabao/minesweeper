@@ -14,6 +14,7 @@
       this.minesPlaced = false;  // mines are placed on the first reveal so it is always safe
       this.exploded = null;      // {r, c} of the mine the player hit
       this.history = [];         // undo stack of snapshots
+      this.redoStack = [];       // snapshots undone and available to redo
     }
 
     neighbors(r, c) {
@@ -64,6 +65,7 @@
       const snap = this._snapshot();          // taken BEFORE placing mines, so undoing move 1 un-places them
       if (!this.minesPlaced) this.placeMines(r, c);
       this.history.push(snap);                // one push per click, however many cells open
+      this.redoStack = [];                    // a new move invalidates redo
       if (cell.mine) { cell.revealed = true; this.exploded = { r, c }; this.status = 'lost'; return true; }
 
       // Flood-fill: open the cell; if it has 0 adjacent mines, open its neighbours too (iterative, no recursion).
@@ -88,19 +90,33 @@
       const cell = this.cells[r][c];
       if (cell.revealed) return false;
       this.history.push(this._snapshot());
+      this.redoStack = [];
       cell.flagged = !cell.flagged;
       return true;
     }
 
     canUndo() { return this.history.length > 0; }
 
-    // Restore the last snapshot. Works after a loss too. Empty history: does nothing, returns false.
+    canRedo() { return this.redoStack.length > 0; }
+
+    // Undo: save the CURRENT state for redo, then restore the last snapshot.
+    // Works after a loss too. Empty history: does nothing, returns false.
     undo() {
       if (!this.canUndo()) return false;
-      const s = this.history.pop();
-      this.cells = s.cells; this.status = s.status; this.minesPlaced = s.minesPlaced; this.exploded = s.exploded;
+      this.redoStack.push(this._snapshot());
+      this._restore(this.history.pop());
       return true;
     }
+
+    // Redo: mirror image of undo.
+    redo() {
+      if (!this.canRedo()) return false;
+      this.history.push(this._snapshot());
+      this._restore(this.redoStack.pop());
+      return true;
+    }
+
+    _restore(s) { this.cells = s.cells; this.status = s.status; this.minesPlaced = s.minesPlaced; this.exploded = s.exploded; }
 
     flagCount() { return this.cells.flat().filter(c => c.flagged).length; }
     minesLeft() { return this.mineCount - this.flagCount(); } // can go negative if over-flagged

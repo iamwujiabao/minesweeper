@@ -126,3 +126,34 @@ test('undo after a win unflags auto-flagged mines', () => {
   assert.strictEqual(g.status, 'playing');
   assert.strictEqual(g.flagCount(), 0);
 });
+
+test('redo re-applies an undone move; new move clears redo', () => {
+  const g = wall();
+  g.reveal(0, 0);
+  const after = snapshot(g);
+  g.undo();
+  assert.strictEqual(g.canRedo(), true);
+  g.redo();
+  assert.strictEqual(snapshot(g), after);
+  g.undo();
+  g.toggleFlag(4, 4); // new move
+  assert.strictEqual(g.canRedo(), false);
+});
+
+test('redo with empty stack does nothing; redo restores a loss', () => {
+  const g = wall();
+  assert.strictEqual(g.redo(), false);
+  g.reveal(2, 2);
+  g.undo();
+  g.redo();
+  assert.strictEqual(g.status, 'lost');
+});
+
+test('redo of the first move restores the same mine layout', () => {
+  const g = new Game(9, 9, 10);
+  g.reveal(4, 4);
+  const after = snapshot(g);
+  g.undo();
+  g.redo();
+  assert.strictEqual(snapshot(g), after);
+});

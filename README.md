@@ -4,14 +4,14 @@
 
 ## 1. Rules, assumptions, undo
 - **Objective:** reveal every safe cell without revealing a mine.
-- **Board:** 9x9, 10 mines (fixed "beginner" difficulty).
+- **Board:** difficulty dropdown: Beginner 9x9/10 mines (default), Intermediate 16x16/40, Expert 16x30/99. Changing it starts a new game.
 - **Clues:** a revealed number = mines among the 8 neighbours. Left-click reveals, right-click toggles a flag. The counter shows `mines - flags` (can go negative).
 - **Mine placement:** on the first reveal, never on the clicked cell or its neighbours. The first click is always safe and always opens an area.
 - **Win:** all safe cells revealed (mines are then auto-flagged). **Loss:** a mine is revealed; all mines are shown; further clicks are ignored.
 - **Undo restores the exact previous state:** revealed cells, flags, mines, status, exploded cell. It works after a loss or a win.
 - **Flood-fill:** revealing a 0 cell opens its neighbours repeatedly (iterative stack). The snapshot is taken once, *before* the click, so the whole cascade is one undo step.
 - **Undoing the first move:** the snapshot predates mine placement, so undo returns to an empty, mine-less board. The next first click lays out *new* mines (still safe). Assumption: layout is not preserved.
-- Clicks that change nothing (revealed/flagged cell, game over) are not recorded. Undo on empty history does nothing (button disabled). No redo.
+- Clicks that change nothing (revealed/flagged cell, game over) are not recorded. Undo on empty history does nothing (button disabled). **Redo** re-applies undone moves (undo/redo stacks of snapshots); making a new move clears redo. **Timer** counts seconds while a game is in progress and stops on win/loss; undoing the first move resets it. **Best time** per difficulty is kept in the browser's `localStorage`. **Touch:** long-press (450 ms) a cell to flag it.
 
 ## 2. Design
 | Part | File | Responsibility |
@@ -56,10 +56,10 @@ Requires Node 18+. From the project folder:
 ```bash
 node --test
 ```
-13 tests: mine placement, numbers, flagging, flood-fill, win, loss, and undo of: first move, a large flood-fill, a flag, empty history, after a loss, after a win.
+16 tests: mine placement, numbers, flagging, flood-fill, win, loss, and undo of: first move, a large flood-fill, a flag, empty history, after a loss, after a win; plus redo (re-apply, cleared by a new move, empty stack, after a loss, first move).
 
 ## 5. Report
-**Game/rules/design:** see sections 1-2. **Implementation:** logic/UI separation; state changes happen only through `reveal`, `toggleFlag`, `undo`, `newGame`; the UI re-renders the whole grid after each action. **Undo design:** full-state snapshots (81 cells, cheap) chosen over storing diffs because they are impossible to get subtly wrong. **Testing:** 13/13 pass under `node --test`; the GUI was not automatically tested, only the logic. **Limitations:** fixed difficulty, no redo, no timer, no chord-click, no touch long-press for flags, first-move undo re-randomises mines, history is unbounded (fine at this size).
+**Game/rules/design:** see sections 1-2. **Implementation:** logic/UI separation; state changes happen only through `reveal`, `toggleFlag`, `undo`, `newGame`; the UI re-renders the whole grid after each action. **Undo design:** full-state snapshots (81 cells, cheap) chosen over storing diffs because they are impossible to get subtly wrong. **Testing:** 16/16 pass under `node --test`; the GUI was not automatically tested, only the logic. **Limitations:** no chord-click, no custom board sizes; timer, high scores, long-press and the difficulty UI are not covered by automated tests, first-move undo re-randomises mines, history is unbounded (fine at this size).
 
 ## 6. Demo script
 1. Open `index.html`. Note Mines: 10, Undo disabled.
@@ -84,9 +84,7 @@ git add README.md && git commit -m "Add report and demo plan"
 ```
 (Because the files already exist, use `git add -p` to split `game.js` honestly across the logic/rules/undo commits, or merge those into one commit.)
 
-## Optional enhancements (not implemented)
-- Difficulty presets (beginner/intermediate/expert).
-- Timer and high-score storage in `localStorage`.
-- Redo stack.
-- Chord-click and long-press flagging for touch.
+## Optional enhancements still not implemented
+- Chord-click (click a satisfied number to open its neighbours).
+- Custom board size.
 - MVVM/framework refactor.
