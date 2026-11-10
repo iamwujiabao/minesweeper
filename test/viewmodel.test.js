@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { ViewModel, clampCustom } = require('../src/viewmodel.js');
+const { ViewModel, clampCustom, cellSize } = require('../src/viewmodel.js');
 
 const fakeStorage = () => { const d = {}; return { getItem: k => d[k] ?? null, setItem: (k, v) => { d[k] = String(v); } }; };
 // Beginner board with mines in column 4 plus (0,8): two clicks win it.
@@ -49,4 +49,18 @@ test('clicking a revealed cell chords, a hidden cell reveals', () => {
   vm.click(0, 5); // hidden: reveal, no chord
   assert.strictEqual(chorded, 1);
   assert.ok(vm.game.cells[0][5].revealed);
+});
+
+test('keyboard cursor moves, stays on the board, and clicking moves it', () => {
+  const vm = new ViewModel(fakeStorage());
+  vm.move(-1, -1); assert.deepStrictEqual(vm.state().cursor, { r: 0, c: 0 });
+  vm.move(1, 0); vm.move(0, 1); assert.deepStrictEqual(vm.state().cursor, { r: 1, c: 1 });
+  vm.move(99, 99); assert.deepStrictEqual(vm.state().cursor, { r: 8, c: 8 });
+  vm.flag(2, 3); assert.deepStrictEqual(vm.state().cursor, { r: 2, c: 3 });
+});
+
+test('cellSize shrinks for big boards and stays within 16..40', () => {
+  assert.strictEqual(cellSize(9, 9, 1000, 800), 40);
+  assert.strictEqual(cellSize(30, 40, 1000, 800), 23); // width-limited: (1000-78)/40
+  assert.strictEqual(cellSize(30, 40, 200, 200), 16);
 });

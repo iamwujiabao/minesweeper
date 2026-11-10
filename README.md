@@ -11,15 +11,15 @@
 - **Undo restores the exact previous state:** revealed cells, flags, mines, status, exploded cell. It works after a loss or a win.
 - **Flood-fill:** revealing a 0 cell opens its neighbours repeatedly (iterative stack). The snapshot is taken once, *before* the click, so the whole cascade is one undo step.
 - **Undoing the first move:** the snapshot predates mine placement, so undo returns to an empty, mine-less board. The next first click lays out *new* mines (still safe). Assumption: layout is not preserved.
-- Clicks that change nothing (revealed/flagged cell, game over) are not recorded. Undo on empty history does nothing (button disabled). **Redo** re-applies undone moves (undo/redo stacks of snapshots); making a new move clears redo. **Timer** counts seconds while a game is in progress and stops on win/loss; undoing the first move resets it. **Best time** per difficulty is kept in the browser's `localStorage`. **Touch:** long-press (450 ms) a cell to flag it.
+- Clicks that change nothing (revealed/flagged cell, game over) are not recorded. Undo on empty history does nothing (button disabled). **Redo** re-applies undone moves (undo/redo stacks of snapshots); making a new move clears redo. **Timer** counts seconds while a game is in progress and stops on win/loss; undoing the first move resets it. **Best time** per difficulty is kept in the browser's `localStorage`. **Touch:** long-press (450 ms) a cell to flag it. **Keyboard:** arrows move a highlighted cursor, Enter/Space reveal or chord, F flags, U undo, Y redo, N new game. **Cell size** scales so the board fits the window (16-40 px). **Sound:** short Web Audio beeps for reveal, flag, undo, loss and win; a checkbox mutes them.
 
 ## 2. Design (MVVM, no framework)
 | Part | File | Responsibility |
 |---|---|---|
 | Model: `Game` | `src/game.js` | All rules: cells, mines, numbers, reveal, chord, flood-fill, flags, win/loss, undo/redo snapshot stacks. No DOM. |
 | Cell | plain object in `Game.cells` | `{mine, adjacent, revealed, flagged}` data only. |
-| ViewModel | `src/viewmodel.js` | UI state and commands: difficulty/custom size (clamped), timer, best times (via injected storage), click-vs-chord choice. Exposes `state()`; no DOM. |
-| View | `src/app.js` + `index.html` | Draws `vm.state()`, forwards clicks, right-clicks, long-presses and buttons to ViewModel commands. |
+| ViewModel | `src/viewmodel.js` | UI state and commands (also keyboard cursor and `cellSize`): difficulty/custom size (clamped), timer, best times (via injected storage), click-vs-chord choice. Exposes `state()`; no DOM. |
+| View | `src/app.js` + `index.html` | Draws `vm.state()`, forwards clicks, right-clicks, long-presses, key presses and buttons to ViewModel commands; plays sounds. |
 
 Why no framework: MVVM here is just a layering convention, so it needs no packages and the model and ViewModel are testable in plain Node.
 
@@ -66,10 +66,10 @@ Requires Node 18+. From the project folder:
 ```bash
 node --test
 ```
-24 tests (`game.test.js`, `viewmodel.test.js`): mine placement, numbers, flagging, flood-fill, win, loss, and undo of: first move, a large flood-fill, a flag, empty history, after a loss, after a win; plus redo (re-apply, cleared by a new move, empty stack, after a loss, first move); chord (opens neighbours, one undo step, no-op cases, wrong flag loses); ViewModel (custom clamping, presets, timer, best times, click-vs-chord).
+26 tests (`game.test.js`, `viewmodel.test.js`): mine placement, numbers, flagging, flood-fill, win, loss, and undo of: first move, a large flood-fill, a flag, empty history, after a loss, after a win; plus redo (re-apply, cleared by a new move, empty stack, after a loss, first move); chord (opens neighbours, one undo step, no-op cases, wrong flag loses); ViewModel (custom clamping, presets, timer, best times, click-vs-chord, keyboard cursor, cell sizing).
 
 ## 5. Report
-**Game/rules/design:** see sections 1-2. **Implementation:** logic/UI separation; state changes happen only through `reveal`, `toggleFlag`, `undo`, `newGame`; the UI re-renders the whole grid after each action. **Undo design:** full-state snapshots (81 cells, cheap) chosen over storing diffs because they are impossible to get subtly wrong. **Testing:** 24/24 pass under `node --test`; the GUI was not automatically tested, only the logic. **Limitations:** the DOM view (rendering, long-press) has no automated tests (checked manually in a browser); custom sizes are capped at 30x40; first-move undo re-randomises mines, history is unbounded (fine at this size).
+**Game/rules/design:** see sections 1-2. **Implementation:** logic/UI separation; state changes happen only through `reveal`, `toggleFlag`, `undo`, `newGame`; the UI re-renders the whole grid after each action. **Undo design:** full-state snapshots (81 cells, cheap) chosen over storing diffs because they are impossible to get subtly wrong. **Testing:** 26/26 pass under `node --test`; the GUI was not automatically tested, only the logic. **Limitations:** the DOM view (rendering, long-press, sound) has no automated tests (keyboard and chord were checked manually in a browser; sound was never listened to); custom sizes are capped at 30x40; first-move undo re-randomises mines, history is unbounded (fine at this size).
 
 ## 6. Demo script
 1. Open `index.html`. Note Mines: 10, Undo disabled.
@@ -95,5 +95,5 @@ git add README.md && git commit -m "Add report and demo plan"
 (Because the files already exist, use `git add -p` to split `game.js` honestly across the logic/rules/undo commits, or merge those into one commit.)
 
 ## Optional enhancements still not implemented
-- Keyboard play, board-size-aware cell scaling, sound.
 - A true framework version (React/Vue) of the View, now easy because the ViewModel is separate.
+- Per-sound volume, saved mute setting, keyboard flag-and-chord shortcuts.

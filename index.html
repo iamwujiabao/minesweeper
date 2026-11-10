@@ -8,6 +8,7 @@
   #custom input { width: 52px; }
   #board button.open { background: #ddd; cursor: default; }
   #board button.boom { background: #f66; }
+  #board button.cursor { outline: 3px solid #08f; outline-offset: -3px; }
   .n1{color:#00f}.n2{color:#080}.n3{color:#f00}.n4{color:#008}.n5{color:#800}.n6{color:#088}.n7{color:#000}.n8{color:#666}
 </style></head>
 <body>
@@ -23,8 +24,9 @@
     <button id="new">New Game</button>
     <button id="undo">Undo</button>
     <button id="redo">Redo</button>
+    <label><input type="checkbox" id="sound" checked> Sound</label>
   </div>
-  <div id="status"></div><p><small>Touch: long-press a cell to flag.</small></p>
+  <div id="status"></div><p><small>Touch: long-press to flag. Keyboard: arrows move, Enter/Space reveal or chord, F flag, U undo, Y redo, N new game.</small></p>
   <div id="board"></div>
   <script src="src/game.js"></script>
   <script src="src/viewmodel.js"></script>

@@ -13,7 +13,7 @@ test('mine placement: right count, first click and neighbours safe', () => {
     assert.strictEqual(g.cells.flat().filter(c => c.mine).length, 10);
     assert.ok(!g.cells[4][4].mine);
     assert.ok(g.neighbors(4, 4).every(([r, c]) => !g.cells[r][c].mine));
-    assert.strictEqual(g.status, 'playing');
+    assert.notStrictEqual(g.status, 'lost'); // an opening flood-fill can (rarely) already win
   }
 });
 

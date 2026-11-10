@@ -11,6 +11,12 @@
     return [rows, cols, clamp(mines, 1, rows * cols - 9)];
   }
 
+  // Cell size in px so the whole board fits a w x h area (2px gaps), between 16 and 40.
+  function cellSize(rows, cols, w, h) {
+    const fit = (n, room) => Math.floor((room - 2 * (n - 1)) / n);
+    return Math.max(16, Math.min(40, fit(cols, w), fit(rows, h)));
+  }
+
   class ViewModel {
     // storage: {getItem, setItem}. hooks: onChange(state) after moves, onTick(seconds) every timer tick.
     constructor(storage, { onChange = () => {}, onTick = () => {} } = {}) {
@@ -25,12 +31,18 @@
       const [r, c, m] = level === 'custom' ? custom : LEVELS[level];
       this.game = new G(r, c, m);
       this.elapsed = 0;
+      this.cursor = { r: 0, c: 0 }; // keyboard cursor
       this._changed();
     }
 
     // Left click: a revealed cell chords, a hidden cell reveals.
-    click(r, c) { this.game.cells[r][c].revealed ? this.game.chord(r, c) : this.game.reveal(r, c); this._changed(); }
-    flag(r, c) { this.game.toggleFlag(r, c); this._changed(); }
+    click(r, c) { this.cursor = { r, c }; this.game.cells[r][c].revealed ? this.game.chord(r, c) : this.game.reveal(r, c); this._changed(); }
+    flag(r, c) { this.cursor = { r, c }; this.game.toggleFlag(r, c); this._changed(); }
+    move(dr, dc) { // keyboard cursor, stays on the board
+      const { r, c } = this.cursor, g = this.game;
+      this.cursor = { r: Math.min(g.rows - 1, Math.max(0, r + dr)), c: Math.min(g.cols - 1, Math.max(0, c + dc)) };
+      this.onChange(this.state());
+    }
     undo() { this.game.undo(); this._changed(); }
     redo() { this.game.redo(); this._changed(); }
 
@@ -52,10 +64,10 @@
 
     state() {
       const g = this.game;
-      return { level: this.level, custom: this.custom, rows: g.rows, cols: g.cols, cells: g.cells, status: g.status,
+      return { level: this.level, custom: this.custom, rows: g.rows, cols: g.cols, cells: g.cells, cursor: this.cursor, status: g.status,
                minesLeft: g.minesLeft(), time: this.elapsed, best: this.best(), canUndo: g.canUndo(), canRedo: g.canRedo() };
     }
   }
 
-  if (typeof module !== 'undefined') module.exports = { ViewModel, LEVELS, clampCustom }; else root.ViewModel = ViewModel;
+  if (typeof module !== 'undefined') module.exports = { ViewModel, LEVELS, clampCustom, cellSize }; else root.ViewModel = ViewModel; root.cellSize = cellSize;
 })(this);
