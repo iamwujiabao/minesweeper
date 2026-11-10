@@ -22,6 +22,10 @@
     constructor(storage, { onChange = () => {}, onTick = () => {} } = {}) {
       this.storage = storage; this.onChange = onChange; this.onTick = onTick;
       this.custom = [9, 9, 10];
+      // Sound settings persist: muted flag and master volume (0..1, default 0.5).
+      const v = storage.getItem('ms-volume');
+      this.muted = storage.getItem('ms-muted') === '1';
+      this.volume = v === null || isNaN(Number(v)) ? 0.5 : Math.min(1, Math.max(0, Number(v)));
       this.start('beginner');
     }
 
@@ -38,6 +42,9 @@
     // Left click: a revealed cell chords, a hidden cell reveals.
     click(r, c) { this.cursor = { r, c }; this.game.cells[r][c].revealed ? this.game.chord(r, c) : this.game.reveal(r, c); this._changed(); }
     flag(r, c) { this.cursor = { r, c }; this.game.toggleFlag(r, c); this._changed(); }
+    chord(r, c) { this.cursor = { r, c }; this.game.chord(r, c); this._changed(); } // chord only, never reveals
+    setMuted(m) { this.muted = !!m; this.storage.setItem('ms-muted', this.muted ? 1 : 0); this.onChange(this.state()); }
+    setVolume(v) { this.volume = Math.min(1, Math.max(0, Number(v) || 0)); this.storage.setItem('ms-volume', this.volume); this.onChange(this.state()); }
     move(dr, dc) { // keyboard cursor, stays on the board
       const { r, c } = this.cursor, g = this.game;
       this.cursor = { r: Math.min(g.rows - 1, Math.max(0, r + dr)), c: Math.min(g.cols - 1, Math.max(0, c + dc)) };
@@ -65,7 +72,7 @@
     state() {
       const g = this.game;
       return { level: this.level, custom: this.custom, rows: g.rows, cols: g.cols, cells: g.cells, cursor: this.cursor, status: g.status,
-               minesLeft: g.minesLeft(), time: this.elapsed, best: this.best(), canUndo: g.canUndo(), canRedo: g.canRedo() };
+               minesLeft: g.minesLeft(), muted: this.muted, volume: this.volume, time: this.elapsed, best: this.best(), canUndo: g.canUndo(), canRedo: g.canRedo() };
     }
   }
 

@@ -24,9 +24,9 @@
     <button id="new">New Game</button>
     <button id="undo">Undo</button>
     <button id="redo">Redo</button>
-    <label><input type="checkbox" id="sound" checked> Sound</label>
+    <label><input type="checkbox" id="sound"> Sound</label> <input type="range" id="volume" min="0" max="1" step="0.1" title="volume">
   </div>
-  <div id="status"></div><p><small>Touch: long-press to flag. Keyboard: arrows move, Enter/Space reveal or chord, F flag, U undo, Y redo, N new game.</small></p>
+  <div id="status"></div><p><small>Touch: long-press to flag. Keyboard: arrows move, Enter/Space reveal or chord, F flag, C chord only, M mute, U undo, Y redo, N new game.</small></p>
   <div id="board"></div>
   <script src="src/game.js"></script>
   <script src="src/viewmodel.js"></script>

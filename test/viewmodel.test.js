@@ -64,3 +64,21 @@ test('cellSize shrinks for big boards and stays within 16..40', () => {
   assert.strictEqual(cellSize(30, 40, 1000, 800), 23); // width-limited: (1000-78)/40
   assert.strictEqual(cellSize(30, 40, 200, 200), 16);
 });
+
+test('mute and volume are saved and reloaded; volume is clamped', () => {
+  const st = fakeStorage(), a = new ViewModel(st);
+  assert.strictEqual(a.state().muted, false); assert.strictEqual(a.state().volume, 0.5);
+  a.setMuted(true); a.setVolume(7);
+  assert.strictEqual(a.volume, 1);
+  const b = new ViewModel(st); // "next visit"
+  assert.strictEqual(b.state().muted, true); assert.strictEqual(b.state().volume, 1);
+  b.setVolume(0); assert.strictEqual(new ViewModel(st).state().volume, 0); // 0 is kept, not defaulted
+});
+
+test('chord command only chords: on a hidden cell it does nothing', () => {
+  const vm = new ViewModel(fakeStorage());
+  vm.click(4, 4); const open = vm.game.cells.flat().filter(c => c.revealed).length;
+  vm.chord(0, 0); // hidden or zero: no state change beyond the cursor
+  assert.strictEqual(vm.game.cells.flat().filter(c => c.revealed).length, open);
+  assert.deepStrictEqual(vm.state().cursor, { r: 0, c: 0 });
+});
