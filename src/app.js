@@ -1,11 +1,6 @@
 // View (MVVM), plain JavaScript: draws vm.state() and forwards DOM events to ViewModel commands. No game rules here.
-// Bundled with esbuild (npm run build) into dist/plain-app.js; the shared code comes from dist/core.js (see scripts/build.js).
+// A plain script: index.html loads the other files in src/ first, so ViewModel, cellSize, Sound, Rng... are globals here.
 // The board's cells are created once and only the cells that changed are updated (no rebuilding with innerHTML).
-import { ViewModel, cellSize, ACTION_LABELS, LEVEL_NAMES, OPTION_DEFS, TABS } from './viewmodel.js';
-import { rngFromSearch, parsePlay } from './rng.js';
-import { Sound } from './sound.js';
-import { SettingsFile } from './settingsfile.js';
-import { handleGameKey, tablistKeydown } from './a11y.js';
 
 const $ = id => document.getElementById(id);
 const boardEl = $('board'), levelEl = $('level'), customEl = $('custom');
@@ -60,7 +55,7 @@ function syncOptions(s) {
 let boardKey = '', cells = [], cellOf = [];            // cells: the elements; cellOf: the view-model cell each element shows
 const vm = new ViewModel(storage, {
   onChange: render, onTick: t => { $('time').textContent = t; },
-  rng: rngFromSearch(location.search), play: parsePlay(location.search),
+  rng: Rng.rngFromSearch(location.search), play: Rng.parsePlay(location.search),
 });
 
 function newGame() { vm.start(levelEl.value, [$('rows').value, $('cols').value, $('minesIn').value]); }

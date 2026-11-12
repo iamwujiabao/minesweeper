@@ -1,7 +1,7 @@
-// Sound effects shared by all views: tiny Web Audio beeps, no audio files. Browsers only allow audio
+// Sound effects: tiny Web Audio beeps, no audio files. Browsers only allow audio
 // after a user gesture, which clicks and key presses are. Call Sound.onState(state) after every state change.
 // Each sound has its own relative volume (vol); the master volume and mute come from the ViewModel.
-export const Sound = (() => {
+const Sound = (() => {
   const SOUNDS = {
     reveal: { notes: [[600, 40]], type: 'square', vol: 0.5 },
     flag:   { notes: [[420, 50]], type: 'square', vol: 0.6 },

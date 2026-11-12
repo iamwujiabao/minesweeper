@@ -1,7 +1,7 @@
-// Keyboard and focus helpers shared by the three views (plain DOM, no framework).
+// Keyboard and focus helpers (plain DOM).
 
 // Put keyboard focus on the board's cursor cell (the one with tabindex 0), once the view has finished drawing.
-export function focusCursorSoon() {
+function focusCursorSoon() {
   requestAnimationFrame(() => {
     const el = document.querySelector('#board [tabindex="0"]');
     if (el && !el.contains(document.activeElement)) el.focus();
@@ -9,7 +9,7 @@ export function focusCursorSoon() {
 }
 
 // One keydown handler for the whole page: decides whether a key press is a game shortcut and hands it to the ViewModel.
-export function handleGameKey(e, vm) {
+function handleGameKey(e, vm) {
   if (e.ctrlKey || e.metaKey || e.altKey) return;                       // browser shortcuts stay the browser's
   const t = e.target, el = t && t.closest ? t : document.body;
   if (!vm.rebinding) {
@@ -27,7 +27,7 @@ export function handleGameKey(e, vm) {
 }
 
 // Arrow keys, Home and End move between the tabs of a tab list (put this on the role="tablist" element).
-export function tablistKeydown(e) {
+function tablistKeydown(e) {
   const tabs = [...e.currentTarget.querySelectorAll('[role=tab]')], i = tabs.indexOf(document.activeElement);
   if (i < 0) return;
   const to = { ArrowRight: (i + 1) % tabs.length, ArrowLeft: (i - 1 + tabs.length) % tabs.length, Home: 0, End: tabs.length - 1 }[e.key];

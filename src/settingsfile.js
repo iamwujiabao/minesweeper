@@ -1,5 +1,5 @@
-// Files shared by all views: download some JSON text, and read an uploaded file as text.
-export const SettingsFile = {
+// Files: download some JSON text, and read an uploaded file as text.
+const SettingsFile = {
   download(text, name = 'minesweeper-settings.json') {
     const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
     const a = document.createElement('a');

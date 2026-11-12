@@ -1,4 +1,4 @@
-// Browser tests (Playwright). `npm run test:e2e` starts scripts/serve.js, then runs e2e/*.spec.js in every project below:
+// Browser tests (Playwright; optional, the game itself needs no install). `npm run test:e2e` starts scripts/serve.js, then runs e2e/*.spec.js in every project below:
 // desktop Chrome, Firefox and Safari (WebKit), plus two phone-sized screens with touch (Android Chrome, iPhone Safari).
 // Browsers: run `npx playwright install` once. To use the Chrome you already have for the two Chromium projects,
 // set PW_CHANNEL=chrome. Run one project with e.g. `npm run test:e2e -- --project=webkit`.

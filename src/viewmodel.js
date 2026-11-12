@@ -1,7 +1,7 @@
-// ViewModel (MVVM): sits between Game (model) and a view. It owns everything about the session that is not a board
+// ViewModel (MVVM): sits between Game (model) and the view (app.js). It owns everything about the session that is not a board
 // rule: difficulty and game modes, timers, hints and power-up buttons, statistics, achievements, best times, saved
 // games, replay, key bindings, sound and theme settings. It exposes commands and one plain state() object, and never
-// touches the DOM, so the same ViewModel drives the plain, Vue and React views.
+// touches the DOM, so it can be tested without a browser.
 (function (root) {
   const G = typeof module !== 'undefined' ? require('./game.js').Game : root.Game;
   const Rng = typeof module !== 'undefined' ? require('./rng.js') : root.Rng;
@@ -739,5 +739,5 @@
 
   const api = { ViewModel, LEVELS, clampCustom, cellSize, DEFAULT_KEYS, ACTION_LABELS, LEVEL_NAMES, OPTION_DEFS, DEFAULT_OPTIONS, ACHIEVEMENTS, TABS, TIPS };
   if (typeof module !== 'undefined') module.exports = api;
-  else Object.assign(root, { ViewModel, cellSize, ACTION_LABELS, LEVEL_NAMES, OPTION_DEFS });
+  else Object.assign(root, { ViewModel, cellSize, ACTION_LABELS, LEVEL_NAMES, OPTION_DEFS, TABS });
 })(this);
