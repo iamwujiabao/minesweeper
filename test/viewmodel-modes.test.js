@@ -26,7 +26,7 @@ function loseGame(vm) { vm.click(vm.game.rows >> 1, vm.game.cols >> 1); const m 
 // ---- options ----
 test('options: defaults, validation, saved, and applied to the next new game only', () => {
   const st = fakeStorage(), vm = make({}, st);
-  assert.deepStrictEqual(vm.options, { mode: 'classic', board: 'square', noGuess: false, powerups: false, questionMarks: true, dimNumbers: true, theme: 'light' });
+  assert.deepStrictEqual(vm.options, { mode: 'classic', board: 'square', noGuess: false, powerups: false, questionMarks: true, dimNumbers: true, theme: 'auto' });
   assert.strictEqual(vm.setOption('mode', 'banana'), false);
   assert.strictEqual(vm.setOption('nope', 1), false);
   assert.strictEqual(vm.setOption('theme', 'dark'), true);

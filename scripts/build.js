@@ -18,10 +18,10 @@ const common = { bundle: true, minify: true, format: 'iife', jsx: 'automatic', l
 const sharedFromCore = {
   name: 'shared-from-core',
   setup(build) {
-    build.onResolve({ filter: /^\.\/(viewmodel|rng|sound|settingsfile)\.js$/ }, args => ({ path: args.path, namespace: 'core' }));
+    build.onResolve({ filter: /^\.\/(viewmodel|rng|sound|settingsfile|a11y)\.js$/ }, args => ({ path: args.path, namespace: 'core' }));
     build.onLoad({ filter: /.*/, namespace: 'core' }, () => ({
       loader: 'js',
-      contents: 'export const { ViewModel, cellSize, ACTION_LABELS, LEVEL_NAMES, OPTION_DEFS, rngFromSearch, parsePlay, Sound, SettingsFile } = window.MinesweeperCore;',
+      contents: 'export const { ViewModel, cellSize, ACTION_LABELS, LEVEL_NAMES, OPTION_DEFS, TABS, rngFromSearch, parsePlay, Sound, SettingsFile, handleGameKey, focusCursorSoon, tablistKeydown } = window.MinesweeperCore;',
     }));
   },
 };

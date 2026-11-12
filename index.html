@@ -1,58 +1,139 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Minesweeper</title>
+<html lang="en" data-theme="auto"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Minesweeper</title>
 <link rel="stylesheet" href="style.css"></head>
 <body>
-  <h1>Minesweeper</h1>
-  <p><small>Plain JavaScript view. <a href="vue.html">Vue version</a>, <a href="react.html">React version</a> (same game, same ViewModel).</small></p>
-  <div id="bar">
-    <select id="level"><option value="beginner">Beginner 9x9</option><option value="intermediate">Intermediate 16x16</option><option value="expert">Expert 16x30</option><option value="custom">Custom</option></select>
-    <span id="custom" hidden>
-      <input id="rows" type="number" min="5" max="30" value="9" title="rows 5-30"> x <input id="cols" type="number" min="5" max="40" value="9" title="columns 5-40"> mines <input id="minesIn" type="number" min="1" value="10" title="mines">
-    </span>
-    <span>Mines: <b id="mines"></b></span>
-    <span>Time: <b id="time">0</b></span>
-    <span>Best: <b id="best">-</b></span>
-    <button id="new">New Game</button>
-    <button id="undo">Undo</button>
-    <button id="redo">Redo</button>
-    <button id="hint" title="Highlight a cell that is certainly safe">Hint</button>
-    <button id="scanner" hidden title="Count the mines around a cell you click">Scanner</button>
-    <button id="replay" hidden>Replay</button>
-    <label><input type="checkbox" id="sound"> Sound</label> <input type="range" id="volume" min="0" max="1" step="0.1" title="volume">
+  <header class="topbar">
+    <h1>Minesweeper</h1>
+    <span class="links">Plain JavaScript &middot; <a href="vue.html">Vue</a> &middot; <a href="react.html">React</a></span>
+    <label>Theme <span id="opts-header"></span></label>
+    <button id="help-btn" aria-label="Keyboard shortcuts and help" title="Keyboard shortcuts and help">?</button>
+    <button id="settings-btn">&#9881; Settings</button>
+  </header>
+
+  <main class="layout">
+    <section class="card game" aria-label="Game">
+      <div class="gamebar">
+        <div class="counter"><span class="lbl">Mines</span><b id="mines" class="lcd">10</b></div>
+        <button id="new" class="face" aria-label="New game" title="New game">&#128578;</button>
+        <div class="counter right"><span class="lbl">Time</span><b id="time" class="lcd">0</b></div>
+      </div>
+      <div class="toolbar" role="toolbar" aria-label="Game actions">
+        <button id="undo">Undo</button>
+        <button id="redo">Redo</button>
+        <button id="hint" title="Highlight a cell that is certainly safe">Hint</button>
+        <button id="scanner" hidden title="Count the mines around a cell you click">Scanner</button>
+        <button id="replay" hidden>Replay</button>
+        <button id="flagmode" aria-pressed="false" title="Taps flag cells instead of opening them">&#128681; Flag mode</button>
+        <button id="newgame-btn" popovertarget="newgame-pop">New game&hellip;</button>
+        <button id="panels-toggle" aria-expanded="false" aria-controls="side">Stats &amp; saves</button>
+      </div>
+      <div class="meta">Best time: <b id="best">-</b></div>
+      <div id="status" role="status" aria-live="polite"></div>
+      <div id="replaybar" class="replaybar" hidden>
+        <button id="replay-prev">&#9664; Step back</button> <button id="replay-play">&#9654; Play</button>
+        <button id="replay-next">Step &#9654;</button> <button id="replay-close">Close replay</button>
+      </div>
+      <div id="tip" class="tip" hidden><span id="tipText"></span><button id="tip-dismiss">Got it</button></div>
+      <div id="hoverInfo" aria-hidden="true"></div>
+      <div class="boardwrap">
+        <div id="board" role="grid" aria-label="Minefield"></div>
+        <div id="result" class="result" hidden>
+          <div class="result-card" role="group" aria-labelledby="resultTitle">
+            <h2 id="resultTitle"></h2>
+            <p id="resultDetail"></p>
+            <div class="result-stats"><div><span>Time</span><b id="resultTime"></b></div><div><span>Best</span><b id="resultBest"></b></div></div>
+            <div class="result-actions">
+              <button id="result-new" class="primary">New game</button> <button id="result-undo">Undo</button>
+              <button id="result-replay">Replay</button> <button id="result-close">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside id="side" class="card side" aria-label="Statistics, saved games and sharing">
+      <div class="sheet-head"><b>Stats &amp; saves</b><button id="panels-close">Close</button></div>
+      <h2>Progress</h2>
+      <table id="stats"></table>
+      <ul id="achievements"></ul>
+      <button id="clear-stats">Reset statistics and badges</button>
+      <h2>Saved games</h2>
+      <div id="slots"></div>
+      <span id="slotMsg" class="note"></span>
+      <h2>Best times</h2>
+      <table id="scores"></table>
+      <button id="clear-scores">Clear best times</button>
+      <h2>Share this board</h2>
+      <input id="shareLink" readonly size="30" placeholder="Share link" aria-label="Share link"> <button id="copyLink">Copy link</button>
+      <span id="shareMsg" class="note"></span>
+    </aside>
+  </main>
+
+  <div id="newgame-pop" popover>
+    <h2>New game</h2>
+    <div class="field"><label for="level">Difficulty</label>
+      <select id="level"><option value="beginner">Beginner 9x9</option><option value="intermediate">Intermediate 16x16</option><option value="expert">Expert 16x30</option><option value="custom">Custom</option></select>
+      <span id="custom" hidden>
+        <input id="rows" type="number" min="5" max="30" value="9" aria-label="Rows" title="rows 5-30"> &times;
+        <input id="cols" type="number" min="5" max="40" value="9" aria-label="Columns" title="columns 5-40"> mines
+        <input id="minesIn" type="number" min="1" value="10" aria-label="Mines" title="mines">
+      </span>
+      <span class="note">Changing the difficulty starts a new game at once.</span></div>
+    <div id="opts-newgame"></div>
+    <small id="optionsNote" class="note"></small>
+    <div class="field-row"><button id="start" class="primary" popovertarget="newgame-pop" popovertargetaction="hide">Start new game</button>
+      <button id="daily" popovertarget="newgame-pop" popovertargetaction="hide">Today's daily challenge</button></div>
   </div>
-  <div id="status"></div>
-  <div id="replaybar" class="replaybar" hidden>
-    <button id="replay-prev">&#9664; Step back</button> <button id="replay-play">&#9654; Play</button>
-    <button id="replay-next">Step &#9654;</button> <button id="replay-close">Close replay</button>
-  </div>
-  <div id="hoverInfo"></div>
-  <p><small>Touch: long-press to flag. Keyboard keys are listed (and rebindable) below.</small></p>
-  <details id="keys"><summary>Keys</summary><div id="keylist"></div><button id="resetkeys">Reset keys</button> <span id="keymsg"></span></details>
-  <details id="options"><summary>Game options</summary>
-    <div id="optionsForm"></div>
-    <small id="optionsNote"></small>
-  </details>
-  <details id="daily-panel"><summary>Daily challenge and sharing</summary>
-    <p><button id="daily">Start today's daily challenge</button> <small>(the same board for everyone, classic rules)</small></p>
-    <p><input id="shareLink" readonly size="46" placeholder="Share link"> <button id="copyLink">Copy link</button> <span id="shareMsg"></span></p>
-  </details>
-  <details id="progress"><summary>Statistics and achievements</summary>
-    <table id="stats"></table>
-    <ul id="achievements"></ul><br>
-    <button id="clear-stats">Reset statistics and badges</button>
-  </details>
-  <details id="saves"><summary>Saved games and best times</summary>
-    <div id="slots"></div>
-    <table id="scores"></table>
-    <button id="clear-scores">Clear best times</button> <span id="slotMsg"></span>
-  </details>
-  <details id="settings"><summary>Files: settings and saved game</summary>
-    <p><small>Your game in progress is also saved automatically and resumes when you reopen the page.</small></p>
-    <button id="export">Download settings</button> <button id="exportGame">Download game</button>
-    <label>Upload a settings or game file: <input type="file" id="settingsFile" accept=".json,application/json"></label>
-    <span id="settingsMsg"></span>
-  </details><br>
-  <div id="board"></div>
+
+  <dialog id="settings" aria-labelledby="settingsTitle">
+    <div class="dialog-head"><h2 id="settingsTitle">Settings</h2><button id="settings-close">Close</button></div>
+    <div role="tablist" aria-label="Settings sections" id="tablist">
+      <button role="tab" id="tab-game" aria-controls="panel-game">Game</button>
+      <button role="tab" id="tab-controls" aria-controls="panel-controls">Controls</button>
+      <button role="tab" id="tab-appearance" aria-controls="panel-appearance">Appearance</button>
+      <button role="tab" id="tab-data" aria-controls="panel-data">Data</button>
+    </div>
+    <div class="dialog-body">
+      <div role="tabpanel" id="panel-game" aria-labelledby="tab-game">
+        <div id="opts-game"></div>
+        <p class="note">Mode, board, no-guess and power-ups are chosen in <b>New game&hellip;</b>.</p>
+      </div>
+      <div role="tabpanel" id="panel-controls" aria-labelledby="tab-controls" hidden>
+        <p class="note">Click <b>+ add key</b>, then press the key you want. Esc cancels.</p>
+        <div id="keylist"></div>
+        <button id="resetkeys">Reset keys</button> <span id="keymsg" class="note"></span>
+        <p><button id="reset-tips">Show the first-time tips again</button></p>
+      </div>
+      <div role="tabpanel" id="panel-appearance" aria-labelledby="tab-appearance" hidden>
+        <div id="opts-appearance"></div>
+        <div class="field"><label><input type="checkbox" id="sound"> Sound</label>
+          <input type="range" id="volume" min="0" max="1" step="0.1" aria-label="Volume"><span class="note">Short beeps for reveals, flags, undo, wins and losses.</span></div>
+        <p class="note">The theme is chosen in the header. Animations switch off automatically if your device asks for reduced motion.</p>
+      </div>
+      <div role="tabpanel" id="panel-data" aria-labelledby="tab-data" hidden>
+        <p class="note">Your game in progress is saved automatically and resumes when you reopen the page.</p>
+        <button id="export">Download settings</button> <button id="exportGame">Download game</button>
+        <div class="field"><label for="settingsFile">Upload a settings or game file</label><input type="file" id="settingsFile" accept=".json,application/json"></div>
+        <span id="settingsMsg" class="note"></span>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="help" aria-labelledby="helpTitle">
+    <div class="dialog-head"><h2 id="helpTitle">Keyboard shortcuts and help</h2><button id="help-close">Close</button></div>
+    <div class="dialog-body">
+      <dl id="shortcuts" class="shortcuts"></dl>
+      <p class="note">Change keys in Settings &rarr; Controls.</p>
+      <h3>Mouse and touch</h3>
+      <ul>
+        <li>Click a cell to open it. Click an open number whose flags are all placed to open its neighbours (chording).</li>
+        <li>Right-click, or long-press on a phone, flags a cell; again for a ? mark. <b>Flag mode</b> makes plain taps flag.</li>
+        <li>Hover an open number to outline its neighbours and see how many flags it still needs.</li>
+        <li>The arrow keys move around the board; screen readers announce each cell.</li>
+      </ul>
+    </div>
+  </dialog>
+
   <script src="dist/core.js"></script>
   <script src="dist/plain-app.js"></script>
 </body></html>

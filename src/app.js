@@ -1,9 +1,11 @@
 // View (MVVM), plain JavaScript: draws vm.state() and forwards DOM events to ViewModel commands. No game rules here.
 // Bundled with esbuild (npm run build) into dist/plain-app.js; the shared code comes from dist/core.js (see scripts/build.js).
-import { ViewModel, cellSize, ACTION_LABELS, LEVEL_NAMES, OPTION_DEFS } from './viewmodel.js';
+// The board's cells are created once and only the cells that changed are updated (no rebuilding with innerHTML).
+import { ViewModel, cellSize, ACTION_LABELS, LEVEL_NAMES, OPTION_DEFS, TABS } from './viewmodel.js';
 import { rngFromSearch, parsePlay } from './rng.js';
 import { Sound } from './sound.js';
 import { SettingsFile } from './settingsfile.js';
+import { handleGameKey, tablistKeydown } from './a11y.js';
 
 const $ = id => document.getElementById(id);
 const boardEl = $('board'), levelEl = $('level'), customEl = $('custom');
@@ -17,13 +19,12 @@ const storage = {
   setItem: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} },
 };
 
+// ---- Game options: each form field is built once from the ViewModel's option list, then kept in sync ----
 // (built before the ViewModel, whose constructor triggers the first render)
-// Game options form: built once from the ViewModel's option list, then kept in sync.
+const optionEls = {};
 for (const def of OPTION_DEFS) {
-  const label = document.createElement('label');
-  label.className = 'opt';
-  label.append(def.label + ' ');
-  let input;
+  const host = $('opts-' + def.group), id = 'opt-' + def.key;
+  let input, note;
   if (def.type === 'select') {
     input = document.createElement('select');
     for (const [value, text] of def.choices) input.add(new Option(text, value));
@@ -33,10 +34,30 @@ for (const def of OPTION_DEFS) {
     input.type = 'checkbox';
     input.onchange = () => vm.setOption(def.key, input.checked);
   }
-  input.id = 'opt-' + def.key;
-  label.append(input);
-  $('optionsForm').append(label);
+  input.id = id;
+  if (def.group === 'header') { host.append(input); optionEls[def.key] = { input }; continue; } // the theme selector lives in the header
+  const field = document.createElement('div');
+  field.className = 'field';
+  const label = document.createElement('label');
+  note = document.createElement('span');
+  note.className = 'note'; note.id = id + '-desc';
+  input.setAttribute('aria-describedby', note.id);
+  if (def.type === 'select') { label.htmlFor = id; label.textContent = def.label; field.append(label, input, note); }
+  else { label.append(input, ' ' + def.label); field.append(label, note); }
+  host.append(field);
+  optionEls[def.key] = { input, note, def };
 }
+function syncOptions(s) {
+  for (const def of OPTION_DEFS) {
+    const { input, note } = optionEls[def.key], value = s.options[def.key];
+    if (def.type === 'select') input.value = value; else input.checked = value;
+    if (note) note.textContent = def.type === 'select' ? def.choices.find(c => c[0] === value)[2] : def.desc;
+  }
+  $('optionsNote').textContent = s.optionsPending ? 'These apply to the next new game.' : '';
+}
+
+// (declared before the ViewModel too: its constructor triggers the first render)
+let boardKey = '', cells = [], cellOf = [];            // cells: the elements; cellOf: the view-model cell each element shows
 const vm = new ViewModel(storage, {
   onChange: render, onTick: t => { $('time').textContent = t; },
   rng: rngFromSearch(location.search), play: parsePlay(location.search),
@@ -44,41 +65,67 @@ const vm = new ViewModel(storage, {
 
 function newGame() { vm.start(levelEl.value, [$('rows').value, $('cols').value, $('minesIn').value]); }
 
+// ---- Board: cells are created once per board shape; after that only changed cells are touched ----
+function buildBoard(s) {
+  boardEl.replaceChildren();
+  cells = []; cellOf = [];
+  boardEl.className = s.topology === 'hex' ? 'hexboard' : '';
+  boardEl.style.setProperty('--cols', s.cols);
+  boardEl.setAttribute('aria-rowcount', s.rows); boardEl.setAttribute('aria-colcount', s.cols);
+  for (let r = 0; r < s.rows; r++) {
+    const row = document.createElement('div');
+    row.setAttribute('role', 'row');
+    for (let c = 0; c < s.cols; c++) {
+      const el = document.createElement('div');
+      el.setAttribute('role', 'gridcell');
+      el.onclick = () => { if (Date.now() - lastLongPress > 600) vm.click(r, c); };            // click (reveal, chord, flag mode or scan)
+      el.oncontextmenu = e => { e.preventDefault(); if (Date.now() - lastLongPress > 800) vm.flag(r, c); };
+      el.onmouseenter = () => hoverOn(r, c);                                                   // highlight a number's neighbours
+      el.onmouseleave = hoverOff;
+      // Touch: hold 450ms to flag. lastLongPress stops the click/contextmenu that follows from acting twice.
+      let timer;
+      el.onpointerdown = e => { if (e.pointerType === 'touch') timer = setTimeout(() => { lastLongPress = Date.now(); vm.flag(r, c); }, 450); };
+      el.onpointerup = el.onpointerleave = el.onpointercancel = () => clearTimeout(timer);
+      row.append(el); cells.push(el); cellOf.push(null);
+    }
+    boardEl.append(row);
+  }
+}
+function updateBoard(s) {
+  const key = `${s.rows}x${s.cols}${s.topology}`;
+  if (key !== boardKey) { boardKey = key; buildBoard(s); }
+  for (let r = 0; r < s.rows; r++)
+    for (let c = 0; c < s.cols; c++) {
+      const i = r * s.cols + c, cell = s.grid[r][c];
+      if (cellOf[i] === cell) continue;                // unchanged: the ViewModel handed back the very same object
+      const el = cells[i];
+      cellOf[i] = cell;
+      el.className = 'cell ' + cell.cls + (cell.anim ? ' ' + cell.anim : '');
+      el.textContent = cell.text;
+      el.setAttribute('aria-label', cell.label);
+      el.tabIndex = cell.cls.includes('cursor') ? 0 : -1;   // roving tabindex: one tab stop, arrow keys move it
+      el.style.setProperty('--d', cell.delay + 'ms');
+    }
+}
+
 function render(s) {
   Sound.onState(s);
   document.documentElement.dataset.theme = s.options.theme;
-  levelEl.value = s.level; // restored from saved settings on load
+  syncOptions(s);
   renderKeys(s);
+  renderHelp(s);
   renderSaves(s);
   renderProgress(s);
-  syncOptions(s);
+  renderTabs(s);
+  levelEl.value = s.level; // restored from saved settings on load
   customEl.hidden = s.level !== 'custom';
   [$('rows').value, $('cols').value, $('minesIn').value] = s.custom; // show clamped values
-  boardEl.className = s.topology === 'hex' ? 'hexboard' : '';
-  boardEl.style.setProperty('--cols', s.cols);
   resize(s);
-  boardEl.innerHTML = '';
-  $('hoverInfo').textContent = '';
-  for (let r = 0; r < s.rows; r++)
-    for (let c = 0; c < s.cols; c++) {
-      const cell = s.grid[r][c];
-      const b = document.createElement('button');
-      b.className = cell.cls; b.textContent = cell.text;
-      b.onclick = () => { if (Date.now() - lastLongPress > 600) vm.click(r, c); };            // click (reveal, chord or scan)
-      b.oncontextmenu = e => { e.preventDefault(); if (Date.now() - lastLongPress > 800) vm.flag(r, c); };
-      b.onmouseenter = () => hoverOn(r, c);                                                   // highlight a number's neighbours
-      b.onmouseleave = hoverOff;
-
-      // Touch: hold 450ms to flag. lastLongPress stops the click/contextmenu that follows from acting twice.
-      let timer;
-      b.onpointerdown = e => { if (e.pointerType === 'touch') timer = setTimeout(() => { lastLongPress = Date.now(); vm.flag(r, c); }, 450); };
-      b.onpointerup = b.onpointerleave = b.onpointercancel = () => clearTimeout(timer);
-      boardEl.appendChild(b);
-    }
-  $('sound').checked = !s.muted;
-  $('volume').value = s.volume;
+  updateBoard(s);
+  hoverOff();
   $('mines').textContent = s.minesLeft;
   $('time').textContent = s.timeText;
+  $('new').textContent = s.face;
   $('best').textContent = s.best ? s.best + 's' : '-';
   $('undo').disabled = !s.canUndo;
   $('redo').disabled = !s.canRedo;
@@ -88,19 +135,31 @@ function render(s) {
   $('scanner').disabled = !s.scanMode && (s.scanner === 0 || s.status !== 'playing');
   $('scanner').classList.toggle('armed', s.scanMode);
   $('replay').hidden = !s.canReplay || !!s.replay;
+  $('flagmode').setAttribute('aria-pressed', s.flagMode);
   $('replaybar').hidden = !s.replay;
   if (s.replay) $('replay-play').innerHTML = s.replay.playing ? '&#10074;&#10074; Pause' : '&#9654; Play';
   $('status').textContent = s.statusText;
+  $('status').className = s.flashSeq ? 'flash' + (s.flashSeq % 2) : '';   // two identical animations, alternated, so each flash restarts
+  $('tip').hidden = !s.tip;
+  if (s.tip) $('tipText').textContent = s.tip.text;
+  $('result').hidden = !s.result;
+  if (s.result) {
+    $('resultTitle').textContent = s.result.title; $('resultDetail').textContent = s.result.detail;
+    $('resultTime').textContent = s.result.time; $('resultBest').textContent = s.result.best;
+    $('result-undo').disabled = !s.result.canUndo; $('result-replay').hidden = !s.result.canReplay;
+  }
+  $('sound').checked = !s.muted;
+  $('volume').value = s.volume;
   $('shareLink').value = s.shareCode ? baseUrl() + '?play=' + s.shareCode : '';
   $('copyLink').disabled = !s.shareCode;
   $('shareMsg').textContent = s.shareCode ? '' : 'No-guess boards cannot be shared as a link';
 }
 
-// Hover help: outline the neighbours of an open number and say how many flags it still needs.
+// ---- Hover help: outline the neighbours of an open number and say how many flags it still needs ----
 function hoverOn(r, c) {
   const h = vm.neighborhood(r, c);
   if (!h) return;
-  for (const i of h.cells) boardEl.children[i].classList.add('nb');
+  for (const i of h.cells) cells[i].classList.add('nb');
   $('hoverInfo').textContent = `${h.number}: ` + (h.remaining > 0 ? `${h.remaining} more flag${h.remaining === 1 ? '' : 's'} needed` :
     h.remaining === 0 ? 'all flags placed' : `${-h.remaining} flag${h.remaining === -1 ? '' : 's'} too many`);
 }
@@ -109,40 +168,44 @@ function hoverOff() {
   $('hoverInfo').textContent = '';
 }
 
-// Cell size fits the board to the window; recomputed on resize without rebuilding the grid.
+// Cell size fits the board to the window (at least 32 px on touch screens, where a bigger board scrolls inside itself).
 function resize(s = vm.state()) {
-  boardEl.style.setProperty('--s', cellSize(s.rows, s.cols, window.innerWidth - 32, window.innerHeight - 200) + 'px');
+  const room = window.innerWidth - (window.innerWidth > 800 ? 420 : 40);
+  const min = window.matchMedia('(pointer: coarse)').matches ? 32 : 16;
+  boardEl.style.setProperty('--s', cellSize(s.rows, s.cols, room, window.innerHeight - 260, min) + 'px');
 }
 window.onresize = () => resize();
 
-function syncOptions(s) {
-  for (const def of OPTION_DEFS) {
-    const input = $('opt-' + def.key);
-    if (def.type === 'select') input.value = s.options[def.key]; else input.checked = s.options[def.key];
-  }
-  $('optionsNote').textContent = s.optionsPending ? 'Mode, board, no-guess and power-ups apply to the next new game.' : '';
-}
-
-// Statistics table and achievement badges.
-function renderProgress(s) {
-  $('stats').innerHTML = '';
-  for (const [label, value] of s.stats) {
-    const tr = $('stats').insertRow();
-    tr.insertCell().textContent = label;
-    tr.insertCell().textContent = value;
-  }
-  $('achievements').innerHTML = '';
-  for (const a of s.achievements) {
-    const li = document.createElement('li');
-    li.className = 'ach ' + (a.unlocked ? 'unlocked' : 'locked');
-    li.textContent = (a.unlocked ? '🏆 ' : '🔒 ') + a.name + ' - ' + a.desc;
-    $('achievements').append(li);
+// ---- Settings dialog tabs, help dialog ----
+function renderTabs(s) {
+  for (const tab of TABS) {
+    const on = tab === s.settingsTab;
+    $('tab-' + tab).setAttribute('aria-selected', on);
+    $('tab-' + tab).tabIndex = on ? 0 : -1;
+    $('panel-' + tab).hidden = !on;
   }
 }
+for (const tab of TABS) $('tab-' + tab).onclick = () => vm.setTab(tab);
+$('tablist').onkeydown = tablistKeydown;
+$('settings-btn').onclick = () => $('settings').showModal();
+$('settings-close').onclick = () => $('settings').close();
+$('help-btn').onclick = () => $('help').showModal();
+$('help-close').onclick = () => $('help').close();
+for (const d of [$('settings'), $('help')]) d.addEventListener('click', e => { if (e.target === d) d.close(); }); // click on the backdrop
 
-// Key panel: each action lists its keys (click a key to remove it, "+ add key" to add one).
+function renderHelp(s) {
+  $('shortcuts').replaceChildren();
+  for (const a of Object.keys(ACTION_LABELS)) {
+    const dt = document.createElement('dt'), dd = document.createElement('dd');
+    dt.textContent = ACTION_LABELS[a];
+    s.keys[a].forEach((k, i) => { if (i) dd.append(' or '); const kbd = document.createElement('kbd'); kbd.textContent = keyName(k); dd.append(kbd); });
+    $('shortcuts').append(dt, dd);
+  }
+}
+
+// ---- Key bindings (Settings > Controls): each action lists its keys (click a key to remove it, "+ add key" to add one) ----
 function renderKeys(s) {
-  $('keylist').innerHTML = '';
+  $('keylist').replaceChildren();
   for (const a of Object.keys(ACTION_LABELS)) {
     const row = document.createElement('div');
     row.className = 'keyrow';
@@ -164,10 +227,11 @@ function renderKeys(s) {
   $('keymsg').textContent = s.keyMessage;
 }
 $('resetkeys').onclick = () => vm.resetKeys();
+$('reset-tips').onclick = () => vm.resetTips();
 
-// Saved-game slots and the best-times table.
+// ---- Side panel: saved-game slots, best times, statistics, badges ----
 function renderSaves(s) {
-  $('slots').innerHTML = '';
+  $('slots').replaceChildren();
   for (const { n, label } of s.slots) {
     const row = document.createElement('div');
     row.className = 'slotrow';
@@ -190,25 +254,56 @@ function renderSaves(s) {
       return e ? `<td title="${e.date}">${e.t}s</td>` : '<td></td>'; // numbers and locale dates only: nothing user-typed goes into the HTML
     }).join('') + '</tr>').join('') + '</tbody>';
 }
+function renderProgress(s) {
+  $('stats').replaceChildren();
+  for (const [label, value] of s.stats) {
+    const tr = $('stats').insertRow();
+    tr.insertCell().textContent = label;
+    tr.insertCell().textContent = value;
+  }
+  $('achievements').replaceChildren();
+  for (const a of s.achievements) {
+    const li = document.createElement('li');
+    li.className = 'ach ' + (a.unlocked ? 'unlocked' : 'locked');
+    li.textContent = (a.unlocked ? '🏆 ' : '🔒 ') + a.name + ' - ' + a.desc;
+    $('achievements').append(li);
+  }
+}
 $('clear-scores').onclick = () => vm.clearScores();
 $('clear-stats').onclick = () => vm.clearStats();
+const sheet = open => { $('side').classList.toggle('open', open); $('panels-toggle').setAttribute('aria-expanded', open); }; // phones: the side panel is a bottom sheet
+$('panels-toggle').onclick = () => sheet(!$('side').classList.contains('open'));
+$('panels-close').onclick = () => sheet(false);
 
-// Daily challenge, share link, replay, hint, scanner.
+// ---- Buttons ----
+$('new').onclick = newGame;
+$('start').onclick = newGame;
+levelEl.onchange = newGame;
 $('daily').onclick = () => vm.startDaily();
-$('copyLink').onclick = async () => {
-  const input = $('shareLink');
-  try { await navigator.clipboard.writeText(input.value); $('shareMsg').textContent = 'Link copied'; }
-  catch (e) { input.select(); $('shareMsg').textContent = 'Press Ctrl+C (or Cmd+C) to copy the selected link'; } // no clipboard access: let the user copy it
-};
+$('undo').onclick = () => vm.undo();
+$('redo').onclick = () => vm.redo();
+$('hint').onclick = () => vm.hint();
+$('scanner').onclick = () => vm.toggleScanner();
+$('flagmode').onclick = () => vm.toggleFlagMode();
 $('replay').onclick = () => vm.startReplay();
 $('replay-prev').onclick = () => vm.replayStep(-1);
 $('replay-next').onclick = () => vm.replayStep(1);
 $('replay-play').onclick = () => vm.replayPlay();
 $('replay-close').onclick = () => vm.replayClose();
-$('hint').onclick = () => vm.hint();
-$('scanner').onclick = () => vm.toggleScanner();
+$('tip-dismiss').onclick = () => vm.dismissTip();
+$('result-new').onclick = newGame;
+$('result-undo').onclick = () => vm.undo();
+$('result-replay').onclick = () => vm.startReplay();
+$('result-close').onclick = () => vm.dismissResult();
+$('sound').onchange = e => vm.setMuted(!e.target.checked);
+$('volume').onchange = e => vm.setVolume(e.target.value);
+$('copyLink').onclick = async () => {
+  const input = $('shareLink');
+  try { await navigator.clipboard.writeText(input.value); $('shareMsg').textContent = 'Link copied'; }
+  catch (e) { input.select(); $('shareMsg').textContent = 'Press Ctrl+C (or Cmd+C) to copy the selected link'; } // no clipboard access: let the user copy it
+};
 
-// Files: download settings or the game in progress, or upload either (validated all-or-nothing by the ViewModel).
+// ---- Files: download settings or the game in progress, or upload either (validated all-or-nothing by the ViewModel) ----
 $('export').onclick = () => { SettingsFile.download(vm.exportSettings()); $('settingsMsg').textContent = 'Downloaded minesweeper-settings.json'; };
 $('exportGame').onclick = () => { SettingsFile.download(vm.exportGame(), 'minesweeper-game.json'); $('settingsMsg').textContent = 'Downloaded minesweeper-game.json'; };
 $('settingsFile').onchange = async e => {
@@ -221,19 +316,7 @@ $('settingsFile').onchange = async e => {
   } catch (err) { $('settingsMsg').textContent = 'Not imported: ' + err.message; }
 };
 
-// Keyboard: the ViewModel decides what a key means. Skip browser shortcuts and typing in fields.
-document.onkeydown = e => {
-  if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if (!vm.rebinding && e.target.matches?.('input[type=number], input[type=range], select')) return;
-  if (vm.pressKey(e.key)) { e.preventDefault(); document.activeElement.blur?.(); } // blur: Space/Enter must not also press a focused button
-};
-
+document.onkeydown = e => handleGameKey(e, vm);
 setInterval(() => vm.tick(), 1000);
 window.addEventListener('pagehide', () => vm.save()); // keep the exact elapsed time for the autosaved game
-$('new').onclick = newGame;
-levelEl.onchange = newGame;
-$('sound').onchange = e => vm.setMuted(!e.target.checked);
-$('volume').onchange = e => vm.setVolume(e.target.value);
-$('undo').onclick = () => vm.undo();
-$('redo').onclick = () => vm.redo();
 render(vm.state());

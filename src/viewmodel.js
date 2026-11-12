@@ -12,19 +12,38 @@
   const isLevel = l => l === 'custom' || Object.prototype.hasOwnProperty.call(LEVELS, l); // not `in`: avoids 'constructor' etc.
   const MODES = ['classic', 'lives', 'undolimit', 'undopenalty', 'timeattack', 'zen', 'twoplayer'];
 
-  // Settings shown in the "Game options" panel. `now: true` options act at once; the others apply to the next new game.
+  // Settings and where they are shown: group 'newgame' = the New game menu (applies to the next new game), 'game' and
+  // 'appearance' = Settings tabs, 'header' = the header. Each option and each choice has a short description.
   const OPTION_DEFS = [
-    { key: 'mode', label: 'Mode', type: 'select', now: false, choices: [['classic', 'Classic'], ['lives', 'Lives (3)'],
-      ['undolimit', 'Limited undo (3)'], ['undopenalty', 'Undo costs 10 s'], ['timeattack', 'Time attack'], ['zen', 'Zen (no timer)'],
-      ['twoplayer', 'Two players (hot-seat)']] },
-    { key: 'board', label: 'Board', type: 'select', now: false, choices: [['square', 'Square'], ['hex', 'Hexagonal'], ['torus', 'Wrap-around']] },
-    { key: 'noGuess', label: 'No-guess boards', type: 'checkbox', now: false },
-    { key: 'powerups', label: 'Power-ups (scanner, shield)', type: 'checkbox', now: false },
-    { key: 'questionMarks', label: 'Question marks', type: 'checkbox', now: true },
-    { key: 'dimNumbers', label: 'Dim finished numbers', type: 'checkbox', now: true },
-    { key: 'theme', label: 'Theme', type: 'select', now: true, choices: [['light', 'Light'], ['dark', 'Dark'], ['colorblind', 'Colour-blind']] },
+    { key: 'mode', label: 'Mode', group: 'newgame', type: 'select', choices: [
+      ['classic', 'Classic', 'The usual rules. The clock counts up and fast wins go in the best-times table.'],
+      ['lives', 'Lives (3)', 'A mine costs one of three lives instead of ending the game.'],
+      ['undolimit', 'Limited undo (3)', 'You get only three undos in the whole game.'],
+      ['undopenalty', 'Undo costs 10 s', 'Undo is unlimited, but every undo adds ten seconds to your time.'],
+      ['timeattack', 'Time attack', 'Beat a countdown of 1.5 seconds per cell. When it hits zero you lose.'],
+      ['zen', 'Zen (no timer)', 'No clock and nothing recorded. Just play.'],
+      ['twoplayer', 'Two players (hot-seat)', 'Take turns revealing cells and score points. Whoever opens a mine loses.']] },
+    { key: 'board', label: 'Board', group: 'newgame', type: 'select', choices: [
+      ['square', 'Square', 'The usual board: every cell has eight neighbours.'],
+      ['hex', 'Hexagonal', 'Hexagon cells with six neighbours.'],
+      ['torus', 'Wrap-around', 'The edges connect, so there is no border and every cell has eight neighbours.']] },
+    { key: 'noGuess', label: 'No-guess boards', group: 'newgame', type: 'checkbox', desc: 'Boards that can be finished by logic alone. They cannot be shared as a link.' },
+    { key: 'powerups', label: 'Power-ups', group: 'newgame', type: 'checkbox', desc: 'Three scanners (count the mines around a cell) and one shield (survives one mine) per game.' },
+    { key: 'questionMarks', label: 'Question marks', group: 'game', type: 'checkbox', desc: 'Right-click cycles flag, question mark, then clear. Takes effect at once.' },
+    { key: 'dimNumbers', label: 'Dim finished numbers', group: 'appearance', type: 'checkbox', desc: 'Dims a number once all of its flags are placed.' },
+    { key: 'theme', label: 'Theme', group: 'header', type: 'select', choices: [
+      ['auto', 'Auto', 'Follows your device\'s light or dark setting.'],
+      ['light', 'Light', 'Light colours.'],
+      ['dark', 'Dark', 'Dark colours.'],
+      ['colorblind', 'Colour-blind', 'A palette that stays distinct with colour blindness; higher numbers are also underlined.']] },
   ];
-  const DEFAULT_OPTIONS = { mode: 'classic', board: 'square', noGuess: false, powerups: false, questionMarks: true, dimNumbers: true, theme: 'light' };
+  const DEFAULT_OPTIONS = { mode: 'classic', board: 'square', noGuess: false, powerups: false, questionMarks: true, dimNumbers: true, theme: 'auto' };
+  const TABS = ['game', 'controls', 'appearance', 'data'];   // Settings dialog tabs
+  // One-time tips, shown in this order when they become relevant. `id` is remembered once the tip is dismissed or used.
+  const TIPS = [
+    { id: 'flag', text: 'Tip: right-click a cell to flag a mine (long-press on a phone, or turn on Flag mode). Right-click again for a ? mark.' },
+    { id: 'chord', text: 'Tip: click a number whose flags are all placed to open its remaining neighbours in one go (chording).' },
+  ];
 
   // Validate saved/imported options. Returns a full options object, or null if any value is not allowed.
   function parseOptions(saved) {
@@ -72,10 +91,11 @@
     return [rows, cols, clamp(mines, 1, rows * cols - 9)];
   }
 
-  // Cell size in px so the whole board fits a w x h area (2px gaps), between 16 and 40.
-  function cellSize(rows, cols, w, h) {
+  // Cell size in px so the whole board fits a w x h area (2px gaps), between `min` (16; views pass 32 on touch screens,
+  // where a board that is too big scrolls inside itself) and 40.
+  function cellSize(rows, cols, w, h, min = 16) {
     const fit = (n, room) => Math.floor((room - 2 * (n - 1)) / n);
-    return Math.max(16, Math.min(40, fit(cols, w), fit(rows, h)));
+    return Math.max(min, Math.min(40, fit(cols, w), fit(rows, h)));
   }
 
   const emptyStats = () => ({ played: 0, won: 0, lost: 0, duels: 0, streak: 0, bestStreak: 0, bestBvs: 0, last: null });
@@ -109,6 +129,11 @@
       this.rebinding = null;    // action waiting for its next key press, or null
       this.keyMessage = '';
       this.replay = null; this.frames = null;
+      this.flagMode = false;       // taps flag instead of reveal (for phones)
+      this.undoRedoCount = 0;      // part of the result overlay's key: undoing and ending again shows the overlay again
+      this.flashSeq = 0; this.shakeSeq = 0;   // blocked-move feedback counters
+      this._pendingBlocked = null; this._anim = null; this._prevMarks = null; this._prevKey = null; this._cellCache = [];
+      this.resultDismissed = null;
       // Everything below is saved settings; corrupt or missing data falls back to defaults.
       let keys = null;
       try { keys = parseKeys(JSON.parse(storage.getItem('ms-keys'))); } catch (e) {}
@@ -117,6 +142,11 @@
       try { options = parseOptions(JSON.parse(storage.getItem('ms-options'))); } catch (e) {}
       this.options = options || { ...DEFAULT_OPTIONS };
       this.scores = this._loadScores();
+      let seen = [];
+      try { seen = JSON.parse(storage.getItem('ms-tips')); } catch (e) {}
+      this.seenTips = Array.isArray(seen) ? seen.filter(id => TIPS.some(t => t.id === id)) : [];
+      const tab = storage.getItem('ms-tab');
+      this.settingsTab = TABS.includes(tab) ? tab : 'game';
       this.stats = this._loadStats();
       this.unlocked = this._loadAchievements();
       this.slotLabels = Array.from({ length: SLOTS }, (_, i) => this._slotLabel(i + 1));
@@ -149,13 +179,14 @@
       if (mode === 'twoplayer') opts.players = 2;
       this.game = new G(r, c, m, this.rng, opts);
       this.gameMode = mode; this.daily = daily;
-      this.gameId++;
+      this.gameId++; this._cellCache = [];
       this.storage.setItem('ms-level', level);
       this.storage.setItem('ms-custom', JSON.stringify(this.custom));
       this.elapsed = 0;
       this.cursor = { r: 0, c: 0 }; // keyboard cursor
       this.scanMode = false; this.hintCell = null; this.hintMessage = ''; this.notice = '';
       this.replay = null; this.frames = null;
+      this.resultDismissed = null;
       this.recordedGame = -1;       // gameId whose result has been recorded (statistics, best times, badges)
       this._changed();
     }
@@ -172,48 +203,66 @@
     // ---- Playing ----
     _blocked() { return !!this.replay; } // while a replay is open the board is read-only
 
-    // Left click: with the scanner armed it scans; a revealed cell chords; a hidden cell reveals.
+    // Left click: with the scanner armed it scans; in flag mode it flags; a revealed cell chords; a hidden cell reveals.
+    // A move that is not allowed (a flagged cell, a finished game, a number without matching flags...) shakes that cell.
     click(r, c) {
       if (this._blocked()) return;
       this.cursor = { r, c };
-      if (this.scanMode) { this.game.scan(r, c); this.scanMode = false; this._changed(); return; }
-      this.game.cells[r][c].revealed ? this.game.chord(r, c) : this.game.reveal(r, c);
-      this._changed(true);
+      const cell = this.game.cells[r][c];
+      let ok, player = false;
+      if (this.scanMode) { ok = this.game.scan(r, c); this.scanMode = false; }
+      else if (this.flagMode && !cell.revealed) { ok = this.game.mark(r, c, this.options.questionMarks); if (ok) this._tipUsed('flag'); }
+      else if (cell.revealed) { ok = this.game.chord(r, c); player = true; if (ok) this._tipUsed('chord'); }
+      else { ok = this.game.reveal(r, c); player = true; }
+      if (!ok) this._pendingBlocked = { r, c };
+      this._changed(player);
     }
     flag(r, c) { // right click: flag, then "?" if question marks are on, then clear
       if (this._blocked()) return;
       this.cursor = { r, c };
-      this.game.mark(r, c, this.options.questionMarks);
+      const ok = this.game.mark(r, c, this.options.questionMarks);
+      if (ok) this._tipUsed('flag'); else this._pendingBlocked = { r, c };
       this._changed();
     }
-    chord(r, c) { if (this._blocked()) return; this.cursor = { r, c }; this.game.chord(r, c); this._changed(true); } // chord only, never reveals
+    chord(r, c) { // chord only, never reveals
+      if (this._blocked()) return;
+      this.cursor = { r, c };
+      const ok = this.game.chord(r, c);
+      if (ok) this._tipUsed('chord'); else this._pendingBlocked = { r, c };
+      this._changed(true);
+    }
     move(dr, dc) { // keyboard cursor, stays on the board
       const { r, c } = this.cursor, g = this.game;
       this.cursor = { r: Math.min(g.rows - 1, Math.max(0, r + dr)), c: Math.min(g.cols - 1, Math.max(0, c + dc)) };
-      this.onChange(this.state());
+      this._emit();
     }
     undo() {
       if (this._blocked()) return;
-      if (this.game.undo() && this.gameMode === 'undopenalty') this.elapsed += UNDO_PENALTY; // the challenge: each undo costs time
+      const ok = this.game.undo();
+      if (ok) this.undoRedoCount++;
+      if (ok && this.gameMode === 'undopenalty') this.elapsed += UNDO_PENALTY; // the challenge: each undo costs time
+      if (!ok) this._flash();
       this._changed();
     }
-    redo() { if (this._blocked()) return; this.game.redo(); this._changed(); }
+    redo() { if (this._blocked()) return; if (this.game.redo()) this.undoRedoCount++; else this._flash(); this._changed(); }
+    toggleFlagMode() { this.flagMode = !this.flagMode; this._emit(); }
+    _flash() { this.flashSeq++; }   // a move that is not allowed outside the board: the status line flashes
 
     // Hint: highlights one cell that is certainly safe, worked out from the open numbers only.
     hint() {
-      if (this._blocked() || this.game.status !== 'playing') return;
+      if (this._blocked() || this.game.status !== 'playing') { this._flash(); this._emit(); return; }
       const h = this.game.hint();
       this.hintCell = h;
-      this.hintMessage = h ? '' : this.game.minesPlaced ? 'No cell is certainly safe - you will have to guess.' : 'Click anywhere to start: the first click is always safe.';
+      this.hintMessage = h ? `Hint: row ${h.r + 1}, column ${h.c + 1} is certainly safe.` : this.game.minesPlaced ? 'No cell is certainly safe - you will have to guess.' : 'Click anywhere to start: the first click is always safe.';
       this.save();
-      this.onChange(this.state());
+      this._emit();
     }
     // Scanner power-up: arm it, then click a cell to count the mines around it. Click the button again to disarm.
     toggleScanner() {
       const g = this.game;
-      if (this._blocked() || g.status !== 'playing' || !g.powerups || (!this.scanMode && (g.scanner <= 0 || !g.minesPlaced))) return;
+      if (this._blocked() || g.status !== 'playing' || !g.powerups || (!this.scanMode && (g.scanner <= 0 || !g.minesPlaced))) { this._flash(); this._emit(); return; }
       this.scanMode = !this.scanMode;
-      this.onChange(this.state());
+      this._emit();
     }
 
     // Hover help: the neighbours of an open number and how many flags it still needs. null for anything else.
@@ -248,21 +297,21 @@
       if (this.replay || this.game.status === 'playing' || this.game.moveCount === 0) return;
       this.frames = this.game.replayFrames();
       this.replay = { index: 0, playing: false };
-      this.onChange(this.state());
+      this._emit();
     }
     replayStep(d) {
       if (!this.replay) return;
       this.replay.index = Math.min(this.frames.length - 1, Math.max(0, this.replay.index + d));
       if (this.replay.index === this.frames.length - 1) this.replay.playing = false;
-      this.onChange(this.state());
+      this._emit();
     }
     replayPlay() { // auto-play: one move per timer tick
       if (!this.replay) return;
       if (this.replay.index === this.frames.length - 1) this.replay.index = 0;
       this.replay.playing = !this.replay.playing;
-      this.onChange(this.state());
+      this._emit();
     }
-    replayClose() { this.replay = null; this.frames = null; this.onChange(this.state()); }
+    replayClose() { this.replay = null; this.frames = null; this._emit(); }
 
     // ---- Sharing ----
     // "9x9x10-square-12345" reproduces this board; null if it can't be (no-guess boards depend on the first click).
@@ -279,7 +328,7 @@
       else if (!def.choices.some(([v]) => v === value)) return false;
       this.options = { ...this.options, [key]: value };
       this.storage.setItem('ms-options', JSON.stringify(this.options));
-      this.onChange(this.state());
+      this._emit();
       return true;
     }
 
@@ -297,7 +346,7 @@
         if (key === 'Escape') this.keyMessage = '';
         else if (this.addKey(a, key)) { this.keyMessage = ''; return true; } // addKey already notified
         else { this.rebinding = a; this.keyMessage = (key === ' ' ? 'Space' : key) + ' is reserved or already used - try another (Esc cancels)'; }
-        this.onChange(this.state());
+        this._emit();
         return true;
       }
       const act = this.actionFor(key);
@@ -311,7 +360,7 @@
       return true;
     }
 
-    startRebind(action) { this.rebinding = action; this.keyMessage = 'Press a key to add (Esc cancels)'; this.onChange(this.state()); }
+    startRebind(action) { this.rebinding = action; this.keyMessage = 'Press a key to add (Esc cancels)'; this._emit(); }
 
     // Add one more key to an action. False (nothing changed) for unknown actions, reserved keys, or keys already in use.
     addKey(action, key) {
@@ -335,11 +384,11 @@
       return true;
     }
     resetKeys() { this.rebinding = null; this.keyMessage = ''; this._setKeys({ ...DEFAULT_KEYS }); }
-    _setKeys(keys) { this.keys = keys; this.storage.setItem('ms-keys', JSON.stringify(keys)); this.onChange(this.state()); }
+    _setKeys(keys) { this.keys = keys; this.storage.setItem('ms-keys', JSON.stringify(keys)); this._emit(); }
 
     // ---- Sound settings ----
-    setMuted(m) { this.muted = !!m; this.storage.setItem('ms-muted', this.muted ? 1 : 0); this.onChange(this.state()); }
-    setVolume(v) { this.volume = Math.min(1, Math.max(0, Number(v) || 0)); this.storage.setItem('ms-volume', this.volume); this.onChange(this.state()); }
+    setMuted(m) { this.muted = !!m; this.storage.setItem('ms-muted', this.muted ? 1 : 0); this._emit(); }
+    setVolume(v) { this.volume = Math.min(1, Math.max(0, Number(v) || 0)); this.storage.setItem('ms-volume', this.volume); this._emit(); }
 
     // ---- Save / load a game in progress ----
     // The whole game (board, undo and redo history, replay log) plus difficulty, mode and elapsed time, as a plain object.
@@ -363,9 +412,9 @@
       if (g.rows !== r || g.cols !== c || g.mineCount !== m) return false;
       this.level = d.level; this.custom = custom; this.game = g; this.elapsed = d.elapsed;
       this.gameMode = mode; this.daily = d.daily || null;
-      this.gameId++; this.cursor = { r: 0, c: 0 }; this.rebinding = null; this.keyMessage = '';
+      this.gameId++; this._cellCache = []; this.cursor = { r: 0, c: 0 }; this.rebinding = null; this.keyMessage = '';
       this.scanMode = false; this.hintCell = null; this.hintMessage = ''; this.notice = '';
-      this.replay = null; this.frames = null;
+      this.replay = null; this.frames = null; this.resultDismissed = null;
       this.recordedGame = record ? -1 : this.gameId;
       this.storage.setItem('ms-level', this.level); this.storage.setItem('ms-custom', JSON.stringify(this.custom));
       this._changed(); // loading never records a result by itself
@@ -439,7 +488,7 @@
       this.scores = { beginner: [], intermediate: [], expert: [] };
       this.storage.setItem('ms-scores', JSON.stringify(this.scores));
       for (const level of Object.keys(LEVELS)) this.storage.setItem('ms-best-' + level, 0); // so an old single best doesn't come back
-      this.onChange(this.state());
+      this._emit();
     }
 
     // ---- Statistics and achievements ----
@@ -465,7 +514,7 @@
     clearStats() {
       this.stats = emptyStats(); this.unlocked = {};
       this.storage.setItem('ms-stats', JSON.stringify(this.stats)); this.storage.setItem('ms-ach', '{}');
-      this.onChange(this.state());
+      this._emit();
     }
 
     // Once per game, when it first finishes by a player move or the clock: statistics, best time, badges.
@@ -505,7 +554,7 @@
       if (!Number.isInteger(n) || n < 1 || n > SLOTS) return false;
       this.storage.setItem('ms-slot-' + n, JSON.stringify({ ...this._gameData(), savedAt: Date.now() }));
       this.slotLabels[n - 1] = this._slotLabel(n);
-      this.onChange(this.state());
+      this._emit();
       return true;
     }
     // False (nothing changes) if the slot is empty or its data is not a consistent saved game.
@@ -517,9 +566,25 @@
       if (!Number.isInteger(n) || n < 1 || n > SLOTS) return false;
       this.storage.setItem('ms-slot-' + n, '');
       this.slotLabels[n - 1] = null;
-      this.onChange(this.state());
+      this._emit();
       return true;
     }
+
+    // ---- First-time tips, settings tab, result overlay ----
+    currentTip() {
+      const g = this.game;
+      if (this.replay || g.status !== 'playing') return null;
+      const has = { flag: true, chord: g.started() && g.cells.flat().some(c => c.revealed && !c.mine && c.adjacent > 0) };
+      return TIPS.find(t => !this.seenTips.includes(t.id) && has[t.id]) || null;
+    }
+    _tipUsed(id) { // doing the thing the tip explains counts as having seen it
+      if (!this.seenTips.includes(id)) { this.seenTips = [...this.seenTips, id]; this.storage.setItem('ms-tips', JSON.stringify(this.seenTips)); }
+    }
+    dismissTip() { const t = this.currentTip(); if (t) { this._tipUsed(t.id); this._emit(); } }
+    resetTips() { this.seenTips = []; this.storage.setItem('ms-tips', '[]'); this._emit(); }
+    setTab(tab) { if (!TABS.includes(tab)) return false; this.settingsTab = tab; this.storage.setItem('ms-tab', tab); this._emit(); return true; }
+    _resultKey() { return [this.gameId, this.game.status, this.game.moveCount, this.undoRedoCount].join(':'); }
+    dismissResult() { this.resultDismissed = this._resultKey(); this._emit(); }
 
     // player: true after a player move (click/chord) or the clock running out, so undo/redo and loading never add a result.
     _changed(player = false) {
@@ -527,33 +592,74 @@
       if (!this.game.started()) this.elapsed = 0; // nothing played: new game or first move undone
       if (player && this.game.status !== 'playing' && this.recordedGame !== this.gameId) this._recordFinish();
       this.save();
-      this.onChange(this.state());
+      this._emit();
+    }
+
+    // ---- Notifying the view ----
+    // Every change goes through here. Before the view is told, work out which cells should animate: cells just opened pop
+    // (flood-fills ripple outward from the click), cells just flagged bounce, a blocked cell shakes.
+    _emit() {
+      this._computeAnim();
+      const st = this.state();
+      this._anim = null;
+      this.onChange(st);
+    }
+    _computeAnim() {
+      const g = this.game, frame = this.replay ? this.frames[this.replay.index] : null;
+      const marks = (frame ? frame.cells : g.cells).flat().map(c => (c.revealed ? 2 : c.flagged ? 1 : c.question ? 3 : 0));
+      const key = this.gameId + (this.replay ? 'r' : 'g'), prev = this._prevMarks, anim = new Map();
+      if (prev && this._prevKey === key && prev.length === marks.length) {
+        const opened = [];
+        marks.forEach((m, i) => {
+          if (m === 2 && prev[i] !== 2) opened.push(i);
+          else if ((m === 1 || m === 3) && prev[i] !== m) anim.set(i, { name: 'flag', delay: 0 });
+        });
+        for (const i of opened) {
+          const ring = Math.max(Math.abs(Math.floor(i / g.cols) - this.cursor.r), Math.abs((i % g.cols) - this.cursor.c));
+          anim.set(i, { name: 'pop', delay: opened.length > 1 ? Math.min(ring * 30, 450) : 0 });
+        }
+      }
+      if (this._pendingBlocked) { // two alternating animation names so a repeated shake restarts
+        anim.set(this._pendingBlocked.r * g.cols + this._pendingBlocked.c, { name: 'shake' + (this.shakeSeq++ % 2), delay: 0 });
+        this._pendingBlocked = null;
+      }
+      this._anim = anim; this._prevMarks = marks; this._prevKey = key;
     }
 
     // ---- What the views draw ----
-    // One {text, cls} per cell, so every view shows exactly the same thing. cls holds CSS class names.
-    _grid(cells, status, scans, hint, cursor) {
-      const g = this.game, hex = g.topology === 'hex', dim = this.options.dimNumbers;
+    // One {text, cls, label, anim, delay} per cell, so every view shows exactly the same thing. cls holds CSS class names,
+    // label is the screen-reader description, anim/delay say how to animate it. A cell whose look did not change keeps the
+    // very same object as last time, so views can skip it.
+    _grid(cells, status, scans, hint, cursor, exploded) {
+      const g = this.game, hex = g.topology === 'hex', dim = this.options.dimNumbers, over = status === 'lost' || status === 'timeout';
       const scanAt = new Map(scans.map(s => [s.r * g.cols + s.c, s.n]));
       return cells.map((row, r) => row.map((cell, c) => {
-        const cls = [];
-        let text = '';
+        const i = r * g.cols + c, cls = [];
+        let text = '', what;
         if (cursor && cursor.r === r && cursor.c === c) cls.push('cursor');
         if (hex) { cls.push('hex'); if (r % 2 === 1) cls.push('odd'); }
         if (cell.revealed) {
           cls.push('open');
-          if (cell.mine) { cls.push('boom'); text = '💣'; }
+          if (cell.mine) { cls.push('boom'); text = '💣'; what = 'mine'; if (exploded && exploded.r === r && exploded.c === c) { cls.push('exploded'); what = 'mine, exploded'; } }
           else if (cell.adjacent) {
             text = String(cell.adjacent); cls.push('n' + cell.adjacent);
+            what = `${cell.adjacent} ${cell.adjacent === 1 ? 'mine' : 'mines'} nearby`;
             // a number whose flags are all placed is dimmed
-            if (dim && g.neighbors(r, c).filter(([y, x]) => cells[y][x].flagged).length === cell.adjacent) cls.push('done');
-          }
-        } else if (cell.flagged) text = '🚩';
-        else if (cell.question) text = '?';
-        else if ((status === 'lost' || status === 'timeout') && cell.mine) text = '💣'; // show all mines after the game ends
-        else if (scanAt.has(r * g.cols + c)) { text = '🔍' + scanAt.get(r * g.cols + c); cls.push('scan'); }
-        if (hint && hint.r === r && hint.c === c) cls.push('hint');
-        return { text, cls: cls.join(' ') };
+            if (dim && g.neighbors(r, c).filter(([y, x]) => cells[y][x].flagged).length === cell.adjacent) { cls.push('done'); what += ', all flags placed'; }
+          } else what = 'empty';
+        } else if (cell.flagged) {
+          text = '🚩'; what = 'flagged';
+          if (over && !cell.mine) { cls.push('wrong'); what = 'flagged, wrong'; } // a flag on a safe cell gets a cross
+        } else if (cell.question) { text = '?'; what = 'question mark'; if (over) cls.push('faded'); }
+        else if (over && cell.mine) { text = '💣'; cls.push('mine'); what = 'mine'; }
+        else if (scanAt.has(i)) { text = '🔍' + scanAt.get(i); cls.push('scan'); what = `hidden, scanner found ${scanAt.get(i)} around`; if (over) cls.push('faded'); }
+        else { what = 'hidden'; if (over) cls.push('faded'); }                   // after the game ends the rest is dimmed
+        if (hint && hint.r === r && hint.c === c) { cls.push('hint'); what += ', hint: safe to open'; }
+        const a = this._anim && this._anim.get(i);
+        const next = { text, cls: cls.join(' '), label: `Row ${r + 1}, column ${c + 1}, ${what}`, anim: a ? a.name : '', delay: a ? a.delay : 0 };
+        const old = this._cellCache[i];
+        const same = old && old.text === next.text && old.cls === next.cls && old.label === next.label && old.anim === next.anim && old.delay === next.delay;
+        return same ? old : (this._cellCache[i] = next);
       }));
     }
 
@@ -589,6 +695,18 @@
       return this.notice ? text + ' ' + this.notice : text;
     }
 
+    // The win/lose overlay: null while playing, during a replay, or after it was closed.
+    _result(status, g) {
+      if (this.replay || status === 'playing' || this.resultDismissed === this._resultKey()) return null;
+      const title = { won: g.players === 2 ? 'Board cleared!' : 'You won!', lost: 'Boom!', timeout: "Time's up!" }[status];
+      const best = this.best();
+      // (the title already says what happened, so the detail only adds what you can do about it)
+      const detail = g.players === 2 ? this._statusText(status, g) : status === 'won' ? (this.notice || 'Nicely done!') :
+                     status === 'lost' && g.canUndo() ? 'Press Undo to take it back.' : 'Start a new game to try again.';
+      return { kind: status, title, detail, time: this.gameMode === 'zen' ? '–' : this.elapsed + ' s',
+               best: best ? best + ' s' : '–', canUndo: g.canUndo(), canReplay: g.moveCount > 0 };
+    }
+
     _statsRows() {
       const s = this.stats, decided = s.won + s.lost, l = s.last;
       return [['Games played', s.played], ['Won', s.won], ['Lost', s.lost], ['Win rate', decided ? Math.round((s.won / decided) * 100) + '%' : '–'],
@@ -600,7 +718,7 @@
       const g = this.game, frame = this.replay ? this.frames[this.replay.index] : null;
       const cells = frame ? frame.cells : g.cells, status = frame ? frame.status : g.status;
       return { gameId: this.gameId, level: this.level, custom: this.custom, rows: g.rows, cols: g.cols, topology: g.topology,
-               cells, status, grid: this._grid(cells, status, frame ? frame.scans : g.scans, frame ? null : this.hintCell, frame ? null : this.cursor),
+               cells, status, grid: this._grid(cells, status, frame ? frame.scans : g.scans, frame ? null : this.hintCell, frame ? null : this.cursor, frame ? frame.exploded : g.exploded),
                statusText: this._statusText(status, g), cursor: this.cursor, minesLeft: g.minesLeft(),
                keys: this.keys, rebinding: this.rebinding, keyMessage: this.keyMessage, muted: this.muted, volume: this.volume,
                time: this.elapsed, timeText: this.timeText(), best: this.best(), scoreRows: TOP,
@@ -612,12 +730,14 @@
                players: g.players, current: g.current, playerScores: g.scores, undosLeft: g.undosLeft,
                replay: this.replay ? { index: this.replay.index, total: this.frames.length - 1, playing: this.replay.playing } : null,
                canReplay: g.status !== 'playing' && g.moveCount > 0, daily: this.daily, shareCode: this.shareCode(),
+               face: { playing: '🙂', won: '😎', lost: '😵', timeout: '😫' }[status], flagMode: this.flagMode, flashSeq: this.flashSeq,
+               tip: this.currentTip(), settingsTab: this.settingsTab, result: this._result(status, g),
                stats: this._statsRows(),
                achievements: ACHIEVEMENTS.map(a => ({ id: a.id, name: a.name, desc: a.desc, unlocked: !!this.unlocked[a.id] })) };
     }
   }
 
-  const api = { ViewModel, LEVELS, clampCustom, cellSize, DEFAULT_KEYS, ACTION_LABELS, LEVEL_NAMES, OPTION_DEFS, DEFAULT_OPTIONS, ACHIEVEMENTS };
+  const api = { ViewModel, LEVELS, clampCustom, cellSize, DEFAULT_KEYS, ACTION_LABELS, LEVEL_NAMES, OPTION_DEFS, DEFAULT_OPTIONS, ACHIEVEMENTS, TABS, TIPS };
   if (typeof module !== 'undefined') module.exports = api;
   else Object.assign(root, { ViewModel, cellSize, ACTION_LABELS, LEVEL_NAMES, OPTION_DEFS });
 })(this);
