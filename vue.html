@@ -22,10 +22,21 @@
     <button id="new" @click="newGame(s.level)">New Game</button>
     <button id="undo" :disabled="!s.canUndo" @click="vm.undo()">Undo</button>
     <button id="redo" :disabled="!s.canRedo" @click="vm.redo()">Redo</button>
+    <button id="hint" :disabled="s.status !== 'playing' || !!s.replay" title="Highlight a cell that is certainly safe" @click="vm.hint()">Hint</button>
+    <button v-if="s.powerups" id="scanner" :class="{ armed: s.scanMode }" :disabled="!s.scanMode && (s.scanner === 0 || s.status !== 'playing')"
+            title="Count the mines around a cell you click" @click="vm.toggleScanner()">Scanner ({{ s.scanner }})</button>
+    <button v-if="s.canReplay && !s.replay" id="replay" @click="vm.startReplay()">Replay</button>
     <label><input id="sound" type="checkbox" :checked="!s.muted" @change="vm.setMuted(!$event.target.checked)"> Sound</label>
     <input id="volume" type="range" min="0" max="1" step="0.1" :value="s.volume" @change="vm.setVolume($event.target.value)" title="volume">
   </div>
-  <div id="status">{{ statusText }}</div>
+  <div id="status">{{ s.statusText }}</div>
+  <div v-if="s.replay" id="replaybar" class="replaybar">
+    <button id="replay-prev" @click="vm.replayStep(-1)">&#9664; Step back</button>
+    <button id="replay-play" @click="vm.replayPlay()">{{ s.replay.playing ? '❚❚ Pause' : '▶ Play' }}</button>
+    <button id="replay-next" @click="vm.replayStep(1)">Step &#9654;</button>
+    <button id="replay-close" @click="vm.replayClose()">Close replay</button>
+  </div>
+  <div id="hoverInfo">{{ hoverText }}</div>
   <p><small>Touch: long-press to flag. Keyboard keys are listed (and rebindable) below.</small></p>
 
   <details>
@@ -38,6 +49,32 @@
       <button @click="vm.startRebind(a)">{{ s.rebinding === a ? 'press a key...' : '+ add key' }}</button>
     </div>
     <button id="resetkeys" @click="vm.resetKeys()">Reset keys</button> <span id="keymsg">{{ s.keyMessage }}</span>
+  </details>
+  <details id="options">
+    <summary>Game options</summary>
+    <div id="optionsForm">
+      <label v-for="d in optionDefs" :key="d.key" class="opt">{{ d.label }}
+        <select v-if="d.type === 'select'" :id="'opt-' + d.key" :value="s.options[d.key]" @change="vm.setOption(d.key, $event.target.value)">
+          <option v-for="c in d.choices" :key="c[0]" :value="c[0]">{{ c[1] }}</option>
+        </select>
+        <input v-else type="checkbox" :id="'opt-' + d.key" :checked="s.options[d.key]" @change="vm.setOption(d.key, $event.target.checked)">
+      </label>
+    </div>
+    <small id="optionsNote">{{ s.optionsPending ? 'Mode, board, no-guess and power-ups apply to the next new game.' : '' }}</small>
+  </details>
+  <details>
+    <summary>Daily challenge and sharing</summary>
+    <p><button id="daily" @click="vm.startDaily()">Start today's daily challenge</button> <small>(the same board for everyone, classic rules)</small></p>
+    <p><input id="shareLink" readonly size="46" placeholder="Share link" :value="shareUrl"> <button id="copyLink" :disabled="!s.shareCode" @click="copyLink">Copy link</button>
+       <span id="shareMsg">{{ s.shareCode ? shareMsg : 'No-guess boards cannot be shared as a link' }}</span></p>
+  </details>
+  <details>
+    <summary>Statistics and achievements</summary>
+    <table id="stats"><tr v-for="row in s.stats" :key="row[0]"><td>{{ row[0] }}</td><td>{{ row[1] }}</td></tr></table>
+    <ul id="achievements">
+      <li v-for="a in s.achievements" :key="a.id" :class="['ach', a.unlocked ? 'unlocked' : 'locked']">{{ a.unlocked ? '🏆' : '🔒' }} {{ a.name }} - {{ a.desc }}</li>
+    </ul><br>
+    <button id="clear-stats" @click="vm.clearStats()">Reset statistics and badges</button>
   </details>
   <details>
     <summary>Saved games and best times</summary>
@@ -63,10 +100,10 @@
     <span id="settingsMsg">{{ settingsMsg }}</span>
   </details><br>
 
-  <div id="board" :style="{ '--cols': s.cols, '--s': px + 'px' }">
-    <button v-for="it in items" :key="it.r * 1000 + it.c" :class="it.cls" @click="cellClick(it.r, it.c)"
-            @contextmenu.prevent="cellFlag(it.r, it.c)" @pointerdown="pressStart($event, it.r, it.c)"
-            @pointerup="pressEnd" @pointerleave="pressEnd" @pointercancel="pressEnd">{{ it.text }}</button>
+  <div id="board" :class="{ hexboard: s.topology === 'hex' }" :style="{ '--cols': s.cols, '--s': px + 'px' }">
+    <button v-for="it in items" :key="it.i" :class="[it.cls, hover && hover.set.has(it.i) ? 'nb' : '']" @click="cellClick(it.r, it.c)"
+            @contextmenu.prevent="cellFlag(it.r, it.c)" @mouseenter="hoverOn(it.r, it.c)" @mouseleave="hover = null"
+            @pointerdown="pressStart($event, it.r, it.c)" @pointerup="pressEnd" @pointerleave="pressEnd" @pointercancel="pressEnd">{{ it.text }}</button>
   </div>
 </div>
 <script src="dist/core.js"></script>

@@ -2,8 +2,8 @@
 // Bundled by esbuild (npm run build) into dist/react-app.js; the shared code comes from dist/core.js (see scripts/build.js).
 import { useState, useEffect, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ViewModel, cellSize, ACTION_LABELS, LEVEL_NAMES } from './viewmodel.js';
-import { rngFromSearch } from './rng.js';
+import { ViewModel, cellSize, ACTION_LABELS, LEVEL_NAMES, OPTION_DEFS } from './viewmodel.js';
+import { rngFromSearch, parsePlay } from './rng.js';
 import { Sound } from './sound.js';
 import { SettingsFile } from './settingsfile.js';
 
@@ -14,44 +14,41 @@ const storage = {
 
 // A tiny external store: the ViewModel pushes state in, components subscribe with useSyncExternalStore.
 // Time has its own store so the 1-second timer only re-renders the clock, not the board.
-let latest, time = 0;
+let latest, time = '0';
 const stateSubs = new Set(), timeSubs = new Set();
 const subscribe = set => cb => { set.add(cb); return () => set.delete(cb); };
 const subState = subscribe(stateSubs), subTime = subscribe(timeSubs);
 
 const vm = new ViewModel(storage, {
-  onChange: st => { Sound.onState(st); latest = st; time = st.time; stateSubs.forEach(f => f()); timeSubs.forEach(f => f()); },
+  onChange: st => {
+    Sound.onState(st);
+    document.documentElement.dataset.theme = st.options.theme;
+    latest = st; time = st.timeText;
+    stateSubs.forEach(f => f()); timeSubs.forEach(f => f());
+  },
   onTick: t => { time = t; timeSubs.forEach(f => f()); },
-  rng: rngFromSearch(location.search),
+  rng: rngFromSearch(location.search), play: parsePlay(location.search),
 });
 window.addEventListener('pagehide', () => vm.save()); // keep the exact elapsed time for the autosaved game
 
 const keyName = k => (k === ' ' ? 'Space' : k);
-const STATUS = { playing: 'Playing - click to reveal, click a number to chord, right-click to flag (or use the keyboard)',
-                 won: '🎉 You won!', lost: '💥 Boom! You lost. Press Undo to take it back.' };
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 let lastLongPress = 0, pressTimer;
 
 function Clock() {
   return <b id="time">{useSyncExternalStore(subTime, () => time)}</b>;
 }
 
-function Cell({ cell, r, c, s }) {
-  const cls = [];
-  let text = '';
-  if (r === s.cursor.r && c === s.cursor.c) cls.push('cursor');
-  if (cell.revealed) {
-    cls.push('open'); if (cell.mine) cls.push('boom');
-    if (cell.mine) text = '💣'; else if (cell.adjacent) { text = cell.adjacent; cls.push('n' + cell.adjacent); }
-  } else if (cell.flagged) text = '🚩';
-  else if (s.status === 'lost' && cell.mine) text = '💣'; // show all mines after a loss
+function Cell({ cell, r, c, hovered, onHover }) {
   return (
-    <button className={cls.join(' ')}
+    <button className={cell.cls + (hovered ? ' nb' : '')}
       onClick={() => { if (Date.now() - lastLongPress > 600) vm.click(r, c); }}
       onContextMenu={e => { e.preventDefault(); if (Date.now() - lastLongPress > 800) vm.flag(r, c); }}
+      onMouseEnter={() => onHover(r, c)} onMouseLeave={() => onHover(null)}
       // Touch: hold 450ms to flag; lastLongPress stops the click/contextmenu that follows from acting twice.
       onPointerDown={e => { if (e.pointerType === 'touch') pressTimer = setTimeout(() => { lastLongPress = Date.now(); vm.flag(r, c); }, 450); }}
       onPointerUp={() => clearTimeout(pressTimer)} onPointerLeave={() => clearTimeout(pressTimer)} onPointerCancel={() => clearTimeout(pressTimer)}>
-      {text}
+      {cell.text}
     </button>
   );
 }
@@ -72,6 +69,56 @@ function KeysPanel({ s }) {
         </div>
       ))}
       <button id="resetkeys" onClick={() => vm.resetKeys()}>Reset keys</button> <span id="keymsg">{s.keyMessage}</span>
+    </details>
+  );
+}
+
+function OptionsPanel({ s }) {
+  return (
+    <details id="options">
+      <summary>Game options</summary>
+      <div id="optionsForm">
+        {OPTION_DEFS.map(d => (
+          <label key={d.key} className="opt">{d.label}{' '}
+            {d.type === 'select'
+              ? <select id={'opt-' + d.key} value={s.options[d.key]} onChange={e => vm.setOption(d.key, e.target.value)}>
+                  {d.choices.map(([v, text]) => <option key={v} value={v}>{text}</option>)}
+                </select>
+              : <input type="checkbox" id={'opt-' + d.key} checked={s.options[d.key]} onChange={e => vm.setOption(d.key, e.target.checked)} />}
+          </label>
+        ))}
+      </div>
+      <small id="optionsNote">{s.optionsPending ? 'Mode, board, no-guess and power-ups apply to the next new game.' : ''}</small>
+    </details>
+  );
+}
+
+function SharePanel({ s }) {
+  const [msg, setMsg] = useState('');
+  const url = s.shareCode ? location.href.split(/[?#]/)[0] + '?play=' + s.shareCode : '';
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setMsg('Link copied'); }
+    catch (e) { document.getElementById('shareLink').select(); setMsg('Select the link and copy it (Ctrl+C or Cmd+C)'); } // no clipboard access
+  };
+  return (
+    <details>
+      <summary>Daily challenge and sharing</summary>
+      <p><button id="daily" onClick={() => vm.startDaily()}>Start today's daily challenge</button> <small>(the same board for everyone, classic rules)</small></p>
+      <p><input id="shareLink" readOnly size="46" placeholder="Share link" value={url} /> <button id="copyLink" disabled={!s.shareCode} onClick={copy}>Copy link</button>
+         <span id="shareMsg"> {s.shareCode ? msg : 'No-guess boards cannot be shared as a link'}</span></p>
+    </details>
+  );
+}
+
+function ProgressPanel({ s }) {
+  return (
+    <details>
+      <summary>Statistics and achievements</summary>
+      <table id="stats"><tbody>{s.stats.map(([label, value]) => <tr key={label}><td>{label}</td><td>{value}</td></tr>)}</tbody></table>
+      <ul id="achievements">
+        {s.achievements.map(a => <li key={a.id} className={'ach ' + (a.unlocked ? 'unlocked' : 'locked')}>{a.unlocked ? '🏆' : '🔒'} {a.name} - {a.desc}</li>)}
+      </ul><br />
+      <button id="clear-stats" onClick={() => vm.clearStats()}>Reset statistics and badges</button>
     </details>
   );
 }
@@ -132,7 +179,9 @@ function App() {
   const s = useSyncExternalStore(subState, () => latest);
   const [custom, setCustom] = useState(s.custom);
   const [win, setWin] = useState({ w: window.innerWidth, h: window.innerHeight });
+  const [hover, setHover] = useState(null); // the open number under the mouse: {number, remaining, set}
   useEffect(() => setCustom(s.custom), [s.custom]); // show clamped / imported sizes
+  useEffect(() => setHover(null), [s]);             // any change clears the hover help
 
   useEffect(() => {
     const onResize = () => setWin({ w: window.innerWidth, h: window.innerHeight });
@@ -146,6 +195,14 @@ function App() {
     document.addEventListener('keydown', onKey);
     return () => { clearInterval(timer); window.removeEventListener('resize', onResize); document.removeEventListener('keydown', onKey); };
   }, []);
+
+  // Hover help: outline an open number's neighbours and say how many flags it still needs.
+  const onHover = (r, c) => {
+    const h = r === null ? null : vm.neighborhood(r, c);
+    setHover(h && { number: h.number, remaining: h.remaining, set: new Set(h.cells) });
+  };
+  const hoverText = !hover ? '' : `${hover.number}: ` + (hover.remaining > 0 ? `${plural(hover.remaining, 'more flag')} needed` :
+    hover.remaining === 0 ? 'all flags placed' : `${plural(-hover.remaining, 'flag')} too many`);
 
   const px = cellSize(s.rows, s.cols, win.w - 32, win.h - 200);
   return (
@@ -172,17 +229,37 @@ function App() {
         <button id="new" onClick={() => vm.start(s.level, custom)}>New Game</button>
         <button id="undo" disabled={!s.canUndo} onClick={() => vm.undo()}>Undo</button>
         <button id="redo" disabled={!s.canRedo} onClick={() => vm.redo()}>Redo</button>
+        <button id="hint" disabled={s.status !== 'playing' || !!s.replay} title="Highlight a cell that is certainly safe" onClick={() => vm.hint()}>Hint</button>
+        {s.powerups && (
+          <button id="scanner" className={s.scanMode ? 'armed' : ''} disabled={!s.scanMode && (s.scanner === 0 || s.status !== 'playing')}
+            title="Count the mines around a cell you click" onClick={() => vm.toggleScanner()}>Scanner ({s.scanner})</button>
+        )}
+        {s.canReplay && !s.replay && <button id="replay" onClick={() => vm.startReplay()}>Replay</button>}
         <label><input id="sound" type="checkbox" checked={!s.muted} onChange={e => vm.setMuted(!e.target.checked)} /> Sound</label>
         <input id="volume" type="range" min="0" max="1" step="0.1" title="volume" value={s.volume} onChange={e => vm.setVolume(e.target.value)} />
       </div>
-      <div id="status">{STATUS[s.status]}</div>
+      <div id="status">{s.statusText}</div>
+      {s.replay && (
+        <div id="replaybar" className="replaybar">
+          <button id="replay-prev" onClick={() => vm.replayStep(-1)}>◀ Step back</button>{' '}
+          <button id="replay-play" onClick={() => vm.replayPlay()}>{s.replay.playing ? '❚❚ Pause' : '▶ Play'}</button>{' '}
+          <button id="replay-next" onClick={() => vm.replayStep(1)}>Step ▶</button>{' '}
+          <button id="replay-close" onClick={() => vm.replayClose()}>Close replay</button>
+        </div>
+      )}
+      <div id="hoverInfo">{hoverText}</div>
       <p><small>Touch: long-press to flag. Keyboard keys are listed (and rebindable) below.</small></p>
       <KeysPanel s={s} />
+      <OptionsPanel s={s} />
+      <SharePanel s={s} />
+      <ProgressPanel s={s} />
       <SavesPanel s={s} />
       <SettingsPanel />
       <br />
-      <div id="board" style={{ '--cols': s.cols, '--s': px + 'px' }}>
-        {s.cells.map((row, r) => row.map((cell, c) => <Cell key={r * 1000 + c} cell={cell} r={r} c={c} s={s} />))}
+      <div id="board" className={s.topology === 'hex' ? 'hexboard' : ''} style={{ '--cols': s.cols, '--s': px + 'px' }}>
+        {s.grid.map((row, r) => row.map((cell, c) => (
+          <Cell key={r * 1000 + c} cell={cell} r={r} c={c} hovered={!!hover && hover.set.has(r * s.cols + c)} onHover={onHover} />
+        )))}
       </div>
     </>
   );

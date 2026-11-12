@@ -242,5 +242,5 @@ test('deserialize rejects inconsistent or malformed data', () => {
   assert.strictEqual(mutate(d => { d.history[0].cells = d.history[0].cells.slice(1); }), null);
   assert.strictEqual(mutate(d => { delete d.history; }), null);
   // a number that disagrees with its neighbours
-  assert.strictEqual(mutate(d => { const ch = d.cells.charCodeAt(0) - 48; d.cells = String.fromCharCode(48 + (ch ^ 8)) + d.cells.slice(1); }), null);
+  assert.strictEqual(mutate(d => { const ch = d.cells.charCodeAt(0) - 48; d.cells = String.fromCharCode(48 + (ch ^ 16)) + d.cells.slice(1); }), null);
 });

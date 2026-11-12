@@ -5,15 +5,21 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const { Game } = require('../src/game.js');
-const { mulberry32 } = require('../src/rng.js');
+const { mulberry32, dailySeed, dailyId } = require('../src/rng.js');
 
 const PAGES = ['index.html', 'vue.html', 'react.html'];
 const SEED = 11;
 
 // The model's version of the board after the first click at (r, c). Each test gets a fresh one and keeps it in step with the page.
-function model(r = 4, c = 4) { const g = new Game(9, 9, 10, mulberry32(SEED)); g.reveal(r, c); return g; }
+function model(r = 4, c = 4, opts = {}) { const g = new Game(9, 9, 10, mulberry32(SEED), opts); g.reveal(r, c); return g; }
 const openCount = g => g.cells.flat().filter(c => c.revealed).length;
 const hiddenSafe = g => g.cells.flatMap((row, r) => row.map((cell, c) => [r, c, cell])).filter(([, , cell]) => !cell.mine && !cell.revealed);
+const mineCells = g => g.cells.flatMap((row, r) => row.map((x, c) => [r, c, x])).filter(([, , x]) => x.mine && !x.revealed).map(([r, c]) => [r, c]);
+
+// Neighbours worked out here from first principles (not by the game code), to check the numbers the pages show.
+const hexNeighbors = (r, c) => (r % 2 === 0 ? [[0, -1], [0, 1], [-1, -1], [-1, 0], [1, -1], [1, 0]] : [[0, -1], [0, 1], [-1, 0], [-1, 1], [1, 0], [1, 1]])
+  .map(([a, b]) => [r + a, c + b]).filter(([y, x]) => y >= 0 && y < 9 && x >= 0 && x < 9);
+const torusNeighbors = (r, c) => [-1, 0, 1].flatMap(a => [-1, 0, 1].map(b => [a, b])).filter(([a, b]) => a || b).map(([a, b]) => [(r + a + 9) % 9, (c + b + 9) % 9]);
 const firstMine = g => { const i = g.cells.flat().findIndex(c => c.mine); return [Math.floor(i / 9), i % 9]; };
 
 for (const file of PAGES) {
@@ -347,6 +353,302 @@ for (const file of PAGES) {
       await load(page);
       await cell(page, 4, 4).tap();
       await expect(opened(page)).toHaveCount(openCount(g));
+    });
+
+    // ---- extra mechanics, assists, modes, boards, sharing, progress, replay, themes ----
+    // Start with game options already saved (as if chosen earlier), so the very first game uses them.
+    async function loadWith(page, options, query = `seed=${SEED}`) {
+      await page.addInitScript(o => { if (!localStorage.getItem('ms-options')) localStorage.setItem('ms-options', JSON.stringify(o)); }, options);
+      await load(page, query);
+    }
+    // Every number on screen equals the mines among its neighbours, counted with the independent neighbour function.
+    const expectNumbers = async (page, g, nbFn) => {
+      let checked = 0;
+      for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) {
+        const x = g.cells[r][c];
+        if (!x.revealed || x.mine) continue;
+        const want = nbFn(r, c).filter(([y, z]) => g.cells[y][z].mine).length;
+        await expect(cell(page, r, c)).toHaveText(want ? String(want) : '');
+        checked++;
+      }
+      expect(checked).toBeGreaterThan(10);
+    };
+    const winBoard = async (page, g) => { // click every safe cell, keeping the model in step
+      for (const [r, c] of hiddenSafe(g).map(([r, c]) => [r, c])) {
+        if (g.cells[r][c].revealed) continue;
+        g.reveal(r, c);
+        await cell(page, r, c).click();
+      }
+    };
+
+    test('right-click cycles flag, ?, clear; with question marks off it just toggles', async ({ page }) => {
+      await load(page);
+      const c = cell(page, 0, 0);
+      await c.click({ button: 'right' }); await expect(c).toHaveText('🚩'); await expect(page.locator('#mines')).toHaveText('9');
+      await c.click({ button: 'right' }); await expect(c).toHaveText('?');  await expect(page.locator('#mines')).toHaveText('10');
+      await c.click({ button: 'right' }); await expect(c).toHaveText('');
+      await panels(page);
+      await page.uncheck('#opt-questionMarks');
+      await c.click({ button: 'right' }); await expect(c).toHaveText('🚩');
+      await c.click({ button: 'right' }); await expect(c).toHaveText('');
+    });
+
+    test('hint highlights the cell the logic solver says is safe; says so before the first click', async ({ page }) => {
+      const g = model(), h = g.hint();
+      expect(h, 'seed should give a hint after the first click').toBeTruthy();
+      await load(page);
+      await page.click('#hint');
+      await expect(page.locator('#status')).toContainText('first click is always safe');
+      await cell(page, 4, 4).click();
+      await page.click('#hint');
+      await expect(page.locator('#board button.hint')).toHaveCount(1);
+      await expect(cell(page, h.r, h.c)).toHaveClass(/hint/);
+      expect(g.cells[h.r][h.c].mine).toBe(false);
+      await cell(page, 0, 0).click({ button: 'right' });           // the next change clears the highlight
+      await expect(page.locator('#board button.hint')).toHaveCount(0);
+    });
+
+    test('hovering an open number outlines its neighbours and counts the flags still needed', async ({ page }) => {
+      const g = model();
+      const target = g.cells.flatMap((row, r) => row.map((x, c) => [r, c, x])).find(([r, c, x]) => x.revealed && x.adjacent > 0 && g.neighbors(r, c).some(([a, b]) => g.cells[a][b].mine));
+      const [tr, tc, tx] = target;
+      await load(page);
+      await cell(page, 4, 4).click();
+      await cell(page, tr, tc).hover();
+      await expect(page.locator('#board button.nb')).toHaveCount(g.neighbors(tr, tc).length);
+      await expect(page.locator('#hoverInfo')).toContainText(`${tx.adjacent}: ${tx.adjacent} more flag`);
+      await page.mouse.move(0, 0);
+      await expect(page.locator('#board button.nb')).toHaveCount(0);
+      const [mr, mc] = g.neighbors(tr, tc).find(([a, b]) => g.cells[a][b].mine);
+      await cell(page, mr, mc).click({ button: 'right' });         // one flag placed
+      await cell(page, tr, tc).hover();
+      await expect(page.locator('#hoverInfo')).toContainText(tx.adjacent === 1 ? 'all flags placed' : `${tx.adjacent - 1} more flag`);
+    });
+
+    test('a number whose flags are all placed is dimmed (and not when the option is off)', async ({ page }) => {
+      const g = model();
+      const [tr, tc] = g.cells.flatMap((row, r) => row.map((x, c) => [r, c, x])).find(([r, c, x]) => x.revealed && x.adjacent > 0)
+        .slice(0, 2);
+      await load(page);
+      await cell(page, 4, 4).click();
+      await expect(cell(page, tr, tc)).not.toHaveClass(/done/);
+      for (const [a, b] of g.neighbors(tr, tc).filter(([a, b]) => g.cells[a][b].mine)) await cell(page, a, b).click({ button: 'right' });
+      await expect(cell(page, tr, tc)).toHaveClass(/done/);
+      await panels(page);
+      await page.uncheck('#opt-dimNumbers');
+      await expect(cell(page, tr, tc)).not.toHaveClass(/done/);
+    });
+
+    test('game options are applied at the next new game and saved', async ({ page }) => {
+      await load(page); await panels(page);
+      await page.selectOption('#opt-mode', 'lives');
+      await expect(page.locator('#optionsNote')).toContainText('next new game');
+      await expect(page.locator('#status')).not.toContainText('Lives');
+      await page.click('#new');
+      await expect(page.locator('#status')).toContainText('Lives: ❤️❤️❤️');
+      await page.reload(); await panels(page);
+      await expect(page.locator('#opt-mode')).toHaveValue('lives');
+    });
+
+    test('lives mode: a mine costs a life, the third ends the game', async ({ page }) => {
+      const g = model(4, 4, { lives: 3 });
+      await loadWith(page, { mode: 'lives' });
+      await cell(page, 4, 4).click();
+      const mines = mineCells(g);
+      await cell(page, ...mines[0]).click();
+      await expect(page.locator('#status')).toContainText('Playing');
+      await expect(page.locator('#status')).toContainText('Lives: ❤️❤️');
+      await expect(page.locator('#status')).not.toContainText('❤️❤️❤️');
+      await cell(page, ...mines[1]).click();
+      await expect(page.locator('#status')).toContainText('Lives: ❤️ ');
+      await cell(page, ...mines[2]).click();
+      await expect(page.locator('#status')).toContainText('Out of lives');
+    });
+
+    test('power-ups: the scanner counts mines around a cell, the shield absorbs one mine', async ({ page }) => {
+      const g = model(4, 4, { powerups: true });
+      await loadWith(page, { powerups: true });
+      await expect(page.locator('#scanner')).toBeVisible();
+      await cell(page, 4, 4).click();
+      const [sr, sc] = g.cells.flatMap((row, r) => row.map((x, c) => [r, c, x])).find(([, , x]) => !x.revealed && !x.mine);
+      g.scan(sr, sc);
+      await page.click('#scanner');
+      await expect(page.locator('#status')).toContainText('click a cell to scan');
+      await cell(page, sr, sc).click();
+      await expect(cell(page, sr, sc)).toHaveText('🔍' + g.scans[0].n);
+      await expect(page.locator('#scanner')).toHaveText('Scanner (2)');
+      const [mr, mc] = mineCells(g)[0];
+      await cell(page, mr, mc).click();                            // the shield takes the hit
+      await expect(page.locator('#status')).toContainText('Playing');
+      await expect(page.locator('#status')).toContainText('Shield 0');
+      await expect(cell(page, mr, mc)).toHaveText('🚩');
+      const [m2r, m2c] = mineCells(g)[1];
+      await cell(page, m2r, m2c).click();
+      await expect(page.locator('#status')).toContainText('Boom');
+    });
+
+    test('two players: turns alternate and a mine loses for whoever hit it', async ({ page }) => {
+      const g = model(4, 4, { players: 2 });
+      await loadWith(page, { mode: 'twoplayer' });
+      await cell(page, 4, 4).click();
+      await expect(page.locator('#status')).toContainText("Player 2's turn");
+      const [r, c] = hiddenSafe(g)[0];
+      await cell(page, r, c).click();
+      await expect(page.locator('#status')).toContainText("Player 1's turn");
+      const [mr, mc] = mineCells(g)[0];
+      await cell(page, mr, mc).click();
+      await expect(page.locator('#status')).toContainText('Player 1 hit a mine, so Player 2 wins');
+    });
+
+    test('modes show their own clock and limits: zen, time attack, limited undo', async ({ page }) => {
+      await loadWith(page, { mode: 'zen' });
+      await expect(page.locator('#time')).toHaveText('–');
+      await cell(page, 4, 4).click();
+      await page.waitForTimeout(1300);
+      await expect(page.locator('#time')).toHaveText('–');
+      await page.close();
+    });
+    test('time attack counts down; limited undo runs out', async ({ browser }) => {
+      const ctx = await browser.newContext();
+      const a = await ctx.newPage();
+      await a.addInitScript(() => localStorage.setItem('ms-options', JSON.stringify({ mode: 'timeattack' })));
+      await a.goto(`/${file}?seed=${SEED}`);
+      await expect(a.locator('#time')).toHaveText('122');          // 9 x 9 cells x 1.5 seconds
+      await a.locator('#board button').nth(40).click();
+      await expect.poll(async () => Number(await a.locator('#time').textContent()), { timeout: 6000 }).toBeLessThan(121);
+      await ctx.close();
+      const ctx2 = await browser.newContext();
+      const b = await ctx2.newPage();
+      await b.addInitScript(() => localStorage.setItem('ms-options', JSON.stringify({ mode: 'undolimit' })));
+      await b.goto(`/${file}?seed=${SEED}`);
+      await expect(b.locator('#status')).toContainText('Undos left: 3');
+      for (const i of [0, 1, 2]) await b.locator('#board button').nth(i).click({ button: 'right' });
+      await b.locator('#board button').nth(3).click({ button: 'right' });
+      for (let i = 0; i < 3; i++) await b.click('#undo');
+      await expect(b.locator('#undo')).toBeDisabled();
+      await expect(b.locator('#status')).toContainText('Undos left: 0');
+      await ctx2.close();
+    });
+
+    test('hexagonal board: hex-shaped cells and flood-fill that matches the 6-neighbour model', async ({ page }) => {
+      const g = model(4, 4, { topology: 'hex' });
+      await loadWith(page, { board: 'hex' });
+      await expect(page.locator('#board')).toHaveClass(/hexboard/);
+      await expect(cell(page, 1, 0)).toHaveClass(/hex odd/);
+      await cell(page, 4, 4).click();
+      await expect(opened(page)).toHaveCount(openCount(g));
+      expect(openCount(g)).toBeGreaterThan(1);
+      await expectNumbers(page, g, hexNeighbors);
+    });
+
+    test('wrap-around board: the flood-fill crosses the edges exactly like the model', async ({ page }) => {
+      const g = model(4, 4, { topology: 'torus' });
+      await loadWith(page, { board: 'torus' });
+      await cell(page, 4, 4).click();
+      await expect(opened(page)).toHaveCount(openCount(g));
+      await expectNumbers(page, g, torusNeighbors);
+    });
+
+    test('no-guess boards can be finished by following hints, without ever guessing', async ({ page }) => {
+      await loadWith(page, { noGuess: true });
+      await expect(page.locator('#status')).toContainText('No-guess board');
+      await cell(page, 4, 4).click();
+      for (let i = 0; i < 100; i++) {
+        if (/won/.test(await page.locator('#status').textContent())) break;
+        await page.click('#hint');
+        await expect(page.locator('#board button.hint')).toHaveCount(1);
+        await page.locator('#board button.hint').click();
+      }
+      await expect(page.locator('#status')).toContainText('won');
+    });
+
+    test('daily challenge: today\'s board is the same for everybody', async ({ page }) => {
+      const seed = dailySeed(dailyId(new Date())), g = new Game(16, 16, 40, Math.random, { seed });
+      g.reveal(8, 8);
+      await load(page); await panels(page);
+      await page.click('#daily');
+      await expect(page.locator('#status')).toContainText('Daily challenge ' + dailyId(new Date()));
+      await expect(page.locator('#board button')).toHaveCount(256);
+      await cell(page, 8, 8, 16).click();
+      await expect(opened(page)).toHaveCount(openCount(g));
+      expect(await page.locator('#shareLink').inputValue()).toContain(`?play=16x16x40-square-${seed}`);
+    });
+
+    test('share link: the link reproduces the board; bad links are ignored', async ({ page }) => {
+      await load(page); await panels(page);
+      const link = await page.locator('#shareLink').inputValue();
+      expect(link).toMatch(/\?play=9x9x10-square-\d+$/);
+      const seedOfLink = Number(link.split('-').pop());
+      const g = new Game(9, 9, 10, Math.random, { seed: seedOfLink }); g.reveal(4, 4);
+      await page.goto(link);
+      await cell(page, 4, 4).click();
+      await expect(opened(page)).toHaveCount(openCount(g));
+      await page.goto(`/${file}?play=garbage`);
+      await expect(page.locator('#board button')).toHaveCount(81);
+      await page.goto(`/${file}?play=7x12x9-hex-42`);              // another shape and size
+      await expect(page.locator('#board button')).toHaveCount(84);
+      await expect(page.locator('#board')).toHaveClass(/hexboard/);
+    });
+
+    test('a win updates statistics and unlocks a badge; statistics can be reset', async ({ page }) => {
+      const g = model();
+      await load(page); await panels(page);
+      await cell(page, 4, 4).click();
+      await page.waitForTimeout(1200);                             // so the game has a time (3BV/s needs one)
+      await winBoard(page, g);
+      await expect(page.locator('#status')).toContainText('won');
+      await expect(page.locator('#status')).toContainText('Unlocked: First win');
+      const stat = label => page.locator('#stats tr', { hasText: label }).locator('td').nth(1);
+      await expect(stat('Games played')).toHaveText('1');
+      await expect(stat('Win rate')).toHaveText('100%');
+      await expect(stat('Last game 3BV').first()).toHaveText(String(g.bbbv()));
+      await expect(page.locator('#achievements li.unlocked').first()).toContainText('First win');
+      await page.reload(); await panels(page);
+      await expect(stat('Games played')).toHaveText('1');           // saved
+      await page.click('#clear-stats');
+      await expect(stat('Games played')).toHaveText('0');
+      await expect(page.locator('#achievements li.unlocked')).toHaveCount(0);
+    });
+
+    test('replay: step through a finished game, auto-play, and close', async ({ page }) => {
+      const g = model(), [mr, mc] = firstMine(g);
+      await load(page);
+      await expect(page.locator('#replay')).toBeHidden();
+      await cell(page, 4, 4).click();
+      await cell(page, mr, mc).click();
+      await expect(page.locator('#status')).toContainText('Boom');
+      await page.click('#replay');
+      await expect(page.locator('#status')).toContainText('Replay: move 0 of 2');
+      await expect(opened(page)).toHaveCount(0);
+      await cell(page, 0, 0).click({ force: true });              // read-only while replaying
+      await expect(page.locator('#status')).toContainText('Replay: move 0 of 2');
+      await page.click('#replay-next');
+      await expect(opened(page)).toHaveCount(openCount(g));
+      await page.click('#replay-prev');
+      await expect(opened(page)).toHaveCount(0);
+      await page.click('#replay-play');                           // auto-play: one move per second
+      await expect(page.locator('#status')).toContainText('you hit a mine', { timeout: 6000 });
+      await page.click('#replay-close');
+      await expect(page.locator('#status')).toContainText('Boom');
+      await expect(page.locator('#replaybar')).toBeHidden();
+    });
+
+    test('themes: dark and colour-blind are applied at once and remembered', async ({ page }) => {
+      await load(page); await panels(page);
+      const theme = () => page.evaluate(() => document.documentElement.dataset.theme);
+      expect(await theme()).toBe('light');
+      const bg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+      const lightBg = await bg();
+      await page.selectOption('#opt-theme', 'dark');
+      expect(await theme()).toBe('dark');
+      expect(await bg()).not.toBe(lightBg);
+      await page.selectOption('#opt-theme', 'colorblind');
+      expect(await theme()).toBe('colorblind');
+      await cell(page, 4, 4).click();
+      const numberColour = await page.locator('#board button.n1').first().evaluate(el => getComputedStyle(el).color);
+      expect(numberColour).toBe('rgb(0, 114, 178)');               // Okabe-Ito blue, not plain blue
+      await page.reload();
+      expect(await theme()).toBe('colorblind');
     });
   });
 }

@@ -206,14 +206,21 @@ test('a saved level like "constructor" falls back to beginner', () => {
 
 // ---- save / load a game in progress ----
 const { mulberry32, rngFromSearch } = require('../src/rng.js');
-const inProgress = st => { const vm = new ViewModel(st, { rng: mulberry32(7) }); vm.click(4, 4); vm.flag(0, 0); vm.tick(); vm.tick(); return vm; };
+const inProgress = st => { // a game with a click, a flag on a hidden cell (a mine), and 2 seconds on the clock
+  const vm = new ViewModel(st, { rng: mulberry32(7) });
+  vm.click(4, 4);
+  const i = vm.game.cells.flat().findIndex(c => c.mine);
+  vm.flagged = [Math.floor(i / 9), i % 9];
+  vm.flag(...vm.flagged); vm.tick(); vm.tick();
+  return vm;
+};
 
 test('a game in progress is autosaved and resumed, including time and undo history', () => {
   const st = fakeStorage(), a = inProgress(st);
   const open = a.game.cells.flat().filter(c => c.revealed).length;
   const b = new ViewModel(st);                                  // "reload the page"
   assert.strictEqual(b.game.cells.flat().filter(c => c.revealed).length, open);
-  assert.strictEqual(b.game.cells[0][0].flagged, true);
+  assert.strictEqual(b.game.cells[a.flagged[0]][a.flagged[1]].flagged, true);
   assert.strictEqual(b.elapsed, 0);                             // ticks are saved with the next change (or save())
   a.save(); assert.strictEqual(new ViewModel(st).elapsed, 2);   // save() (called on pagehide) keeps the time
   b.undo(); b.undo();

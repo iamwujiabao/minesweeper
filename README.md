@@ -5,24 +5,52 @@
 ## 1. Rules, assumptions, undo
 - **Objective:** reveal every safe cell without revealing a mine.
 - **Board:** difficulty dropdown: Beginner 9x9/10 mines (default), Intermediate 16x16/40, Expert 16x30/99. **Custom** lets you pick rows (5-30), columns (5-40) and mines (1 to cells-9, so the safe first-click area always fits); values are clamped. Changing it starts a new game. Custom games record no best time.
-- **Clues:** a revealed number = mines among the 8 neighbours. Left-click reveals; left-clicking a revealed number whose flag count equals it **chords** (opens all its unflagged neighbours; a wrong flag can hit a mine and lose; one undo step).  right-click toggles a flag. The counter shows `mines - flags` (can go negative).
-- **Mine placement:** on the first reveal, never on the clicked cell or its neighbours. The first click is always safe and always opens an area.
+- **Clues:** a revealed number = mines among its neighbours (8 on square and wrap-around boards, 6 on hex). Left-click reveals; left-clicking a revealed number whose flag count equals it **chords** (opens all its unflagged neighbours; a wrong flag can hit a mine and lose; one undo step).  right-click toggles a flag. The counter shows `mines - flags` (can go negative).
+- **Mine placement:** on the first reveal, never on the clicked cell or its neighbours. The first click is always safe and always opens an area. Every game has a **seed**: the cells are shuffled with that seed and the mines are the first ones outside the safe zone, so one seed gives (almost) one board whatever the first click is. That is what makes share links and the daily challenge possible.
 - **Win:** all safe cells revealed (mines are then auto-flagged). **Loss:** a mine is revealed; all mines are shown; further clicks are ignored.
 - **Undo restores the exact previous state:** revealed cells, flags, mines, status, exploded cell. It works after a loss or a win.
 - **Flood-fill:** revealing a 0 cell opens its neighbours repeatedly (iterative stack). The snapshot is taken once, *before* the click, so the whole cascade is one undo step.
-- **Undoing the first move:** the snapshot predates mine placement, so undo returns to an empty, mine-less board. The next first click lays out *new* mines (still safe). Assumption: layout is not preserved.
+- **Undoing the first move:** the snapshot predates mine placement, so undo returns to an empty, mine-less board. The next first click lays out the mines again from the same seed (still safe), so redo and a second try give the same board unless you click somewhere else.
 - Clicks that change nothing (revealed/flagged cell, game over) are not recorded. Undo on empty history does nothing (button disabled). **Redo** re-applies undone moves (undo/redo stacks of snapshots); making a new move clears redo. **Timer** counts seconds while a game is in progress and stops on win/loss; undoing the first move resets it. **Best time** per difficulty is kept in the browser's `localStorage`. **Touch:** long-press (450 ms) a cell to flag it. **Keyboard:** defaults are arrows move a highlighted cursor, Enter/Space reveal or chord, F flags, C chords only (never reveals), M toggles mute, U undo, Y redo, N new game. Every action is **rebindable** in the page's Keys panel and can have **several keys**: click "+ add key" then press a key (Esc cancels), or click a key's ✕ to remove it (an action always keeps one). Shift/Ctrl/Alt/Meta/Esc/Tab and keys already in use are refused; Reset keys restores defaults. **Settings file:** the Files panel downloads difficulty, custom size, keys, mute and volume as `minesweeper-settings.json`. **Saved game:** a game in progress is autosaved after every move and resumes when you reopen the page (time included; finished or untouched games start fresh), and "Download game" saves it to `minesweeper-game.json`: board, flags, difficulty, elapsed time and the full undo/redo history (each board is one character per cell, so files stay small). One upload box takes either kind of file. Imports are all-or-nothing and checked hard, because a file is untrusted input: bad JSON, a file over 100 KB, wrong sizes or characters, a mine count or number that disagrees with the board, a board that does not match its difficulty, or a status that does not match the board are all rejected and nothing changes. A loaded finished game never records a best time. **`?seed=N`** in a page's URL makes the boards reproducible (used by the browser tests). **Saved-game slots:** three slots in the "Saved games and best times" panel (Save here / Load / Delete), each holding a full game with undo history, kept until overwritten or deleted and separate from the autosave. **Best times:** the five fastest wins per difficulty (Beginner, Intermediate, Expert; not Custom) are listed in a table and the fastest is shown as Best. A win is recorded only when a player move wins it, so undo/redo, loading a file or a slot never adds a time; a single best time saved by an older version becomes the first entry. **Phones:** the pages have a viewport tag, and the board scrolls inside itself when it is wider than the screen. **Saved settings:** difficulty, custom size, key map, mute and volume persist in `localStorage`; corrupt saved data falls back to defaults. **Cell size** scales so the board fits the window (16-40 px). **Sound:** short Web Audio beeps for reveal, flag, undo, loss and win; each sound has its own relative volume, plus a master volume slider and a mute checkbox; mute and volume are saved in `localStorage` and restored next visit.
+
+### Extended features
+All of these are on by default or in the **Game options** panel (*applies to the next new game* unless marked "now"), and every one works in all three views. The rules live in `Game` (`src/game.js`) and `src/solver.js`; modes, statistics and badges live in the ViewModel.
+
+| # | Feature | How it works |
+|---|---|---|
+| 1 | Question marks | Right-click cycles hidden, flag, `?`, hidden. A `?` is not a flag (it does not change the mine counter or a chord). Option *Question marks* (now). |
+| 2 | Power-ups | Option *Power-ups*: 3 scanners and 1 shield per game. Scanner: press the button (key `S`), click a cell, and it shows how many mines are in that cell plus its neighbours (the 3x3 area; 7 cells on hex). The shield absorbs the first mine you open (the mine stays hidden, marked with a flag). Both are undoable. |
+| 3 | Hint | Button / key `H`: outlines one cell that is *certainly* safe, worked out only from the open numbers (single-number rules plus the subset rule). If nothing is certain it says you must guess. Using a hint removes the game from the best-times table. |
+| 4 | Neighbour highlight | Hover an open number: its neighbours are outlined and a line says how many more flags it needs (or how many too many). |
+| 5 | Dimmed numbers | A number whose neighbouring flags equal it is dimmed. Option *Dim finished numbers* (now). |
+| 6 | Lives | Mode *Lives (3)*: a mine costs a life (the mine stays shown); the third ends the game. Undo gives a life back. |
+| 7 | Limited undo | Mode *Limited undo (3)*: only 3 undos (redo is free). Mode *Undo costs 10 s*: each undo adds 10 seconds to the clock. |
+| 8 | No-guess boards | Option *No-guess boards*: after your first click the game tries random boards until a logic-only solver can finish it without guessing (usually instant; if it cannot find one in 3 s it says so). They cannot be shared as links. |
+| 9 | Time attack | Mode *Time attack*: a countdown of 1.5 s per cell (122 s on Beginner); at 0 the game is lost and undo is off. |
+| 10 | Zen | Mode *Zen*: no clock and nothing recorded in best times or 3BV/s (the game still counts as played/won). |
+| 11 | Two players | Mode *Two players (hot-seat)*: players alternate reveals (flags and scans do not pass the turn), each scores the cells they opened, and whoever opens a mine loses; if the board is cleared the higher score wins. |
+| 12 | Hex board | Option *Board: Hexagonal*: pointy-top hexagons, 6 neighbours, odd rows shifted half a cell. |
+| 13 | Wrap-around | Option *Board: Wrap-around*: a torus, so the edges connect (every cell has 8 neighbours). |
+| 14 | Daily challenge | "Start today's daily challenge": a seed from today's UTC date, Intermediate, classic rules, so everyone gets the same board. Has its own badge. |
+| 15 | Share link | The link shown under "Daily challenge and sharing" (`?play=ROWSxCOLSxMINES-SHAPE-SEED`) reproduces a board. It is validated; a bad link is ignored. |
+| 16 | Statistics | Games played, wins, losses, win rate, current and best win streak, and the 3BV and 3BV/s of games (3BV = the fewest clicks that could solve the board). A game's result is counted once, when it first ends; two-player games are counted separately; reset button included. |
+| 17 | Replay | After a game ends, "Replay" steps through it move by move (or auto-plays one move per second), read-only. It replays the moves still in effect (undone moves are not shown). |
+| 18 | Achievements | 14 badges, e.g. *No take-backs* (win Expert without undo), *Pure logic* (win a no-guess board without a hint), *Survivor* (win Lives mode with one life left), *Hex explorer*, *Daily winner*. Unlocked badges are saved and announced in the status line. |
+| 19 | Themes | Option *Theme* (now): light, dark, and a colour-blind palette (Okabe-Ito colours, higher numbers also underlined). |
+
+Best times are recorded only for comparable games: classic mode, square board, no power-ups, no hints, not Custom. Uploaded game files never add a result.
 
 ## 2. Design (MVVM)
 | Part | File | Responsibility |
 |---|---|---|
-| Model: `Game` | `src/game.js` | All rules: cells, mines, numbers, reveal, chord, flood-fill, flags, win/loss, undo/redo snapshot stacks. No DOM. |
-| Cell | plain object in `Game.cells` | `{mine, adjacent, revealed, flagged}` data only. |
-| ViewModel | `src/viewmodel.js` | UI state and commands (also keyboard cursor and `cellSize`): difficulty/custom size (clamped), timer, best times (via injected storage), click-vs-chord choice. Exposes `state()`; no DOM. |
+| Model: `Game` | `src/game.js` | All rules: cells, seeded mines, numbers, reveal, chord, flood-fill, flags and `?`, power-ups, lives, undo limit, two players, board shapes, win/loss/time-out, 3BV, replay frames, undo/redo snapshot stacks, save/load. No DOM. |
+| Solver | `src/solver.js` | Neighbour lists for the three board shapes; a logic solver used for hints and no-guess boards. |
+| Cell | plain object in `Game.cells` | `{mine, adjacent, revealed, flagged, question}` data only. |
+| ViewModel | `src/viewmodel.js` | Everything about the session that is not a board rule: difficulty, game modes and clocks, options, hints and the scanner button, statistics, badges, best times, slots, replay, daily/share, key bindings, sound and theme settings (via injected storage). It even works out what each cell shows (`state().grid`), so every view draws the same. Exposes `state()`; no DOM. |
 | View (plain JS) | `src/app.js` + `index.html` | Draws `vm.state()`, forwards clicks, right-clicks, long-presses, key presses and buttons to ViewModel commands. Bundled to `dist/plain-app.js` (about 5 KB; it uses the shared `dist/core.js`). |
 | View (Vue 3) | `src/vue-app.js` + `vue.html` | The same job done with Vue; reuses the unchanged Game and ViewModel. Bundled with Vue to `dist/vue-app.js` (works offline; shared code from `dist/core.js`). |
 | View (React 18) | `src/react-app.jsx` + `react.html` | The same job again with React hooks (`useSyncExternalStore` subscribes to the ViewModel). Source is JSX, so it is bundled with React to `dist/react-app.js` (shared code from `dist/core.js`). |
-| Sound, files, seeds | `src/sound.js`, `src/settingsfile.js`, `src/rng.js` | Web Audio beeps; file download/upload; seedable random numbers. Shared by all three views. |
+| Sound, files, seeds | `src/sound.js`, `src/settingsfile.js`, `src/rng.js` | Web Audio beeps; file download/upload; seedable random numbers, the daily seed, and share-link parsing. Shared by all three views. |
 
 Why three views: because the ViewModel owns all state, commands and key handling (`pressKey`), a framework view is only rendering and event wiring; neither the Vue nor the React view needed changes to the model or ViewModel. The ViewModel is testable in plain Node. Both pages share saved settings (same `localStorage`).
 
@@ -30,22 +58,34 @@ Why three views: because the ViewModel owns all state, commands and key handling
 classDiagram
   class Game {
     +cells: Cell[][]
-    +status: playing|won|lost
+    +status: playing|won|lost|timeout
+    +topology: square|hex|torus
+    +seed
     +history: Snapshot[]
     +redoStack: Snapshot[]
     +reveal(r,c) bool
     +chord(r,c) bool
-    +toggleFlag(r,c) bool
+    +mark(r,c,question) bool
+    +scan(r,c) bool
+    +hint() Cell
+    +bbbv() int
+    +replayFrames() Frame[]
     +undo() bool
     +redo() bool
     +minesLeft() int
     +setMines(list)
   }
-  class Cell { mine; adjacent; revealed; flagged }
-  class Snapshot { cells; status; minesPlaced; exploded }
+  class Cell { mine; adjacent; revealed; flagged; question }
+  class Solver { buildNeighbors(); deduce(); hint(); solvable() }
+  class Snapshot { cells; status; minesPlaced; exploded; lives; scanner; shield; scans; current; scores; moveCount }
   class ViewModel {
-    +level; custom; elapsed
-    +start(level, custom)
+    +level; options; stats; elapsed
+    +start(level, custom, extra)
+    +startDaily()
+    +hint()
+    +toggleScanner()
+    +startReplay()
+    +setOption(key, value)
     +click(r,c)
     +flag(r,c)
     +undo()
@@ -56,6 +96,7 @@ classDiagram
   class View { render(state); DOM event handlers }
   Game "1" *-- "many" Cell
   Game "1" *-- "many" Snapshot
+  Game ..> Solver : neighbours, no-guess, hints
   ViewModel --> Game : owns, calls
   View --> ViewModel : commands
   ViewModel ..> View : onChange(state), onTick(t)
@@ -72,13 +113,13 @@ npm run build
 `scripts/build.js` uses esbuild to make four scripts in `dist/`: **`core.js`**, the game, ViewModel, sound and file code that all views share (one global, `MinesweeperCore`), and one small script per view (`plain-app.js`, `vue-app.js` with Vue, `react-app.js` with React). Each page loads `core.js` first, then its own script, so the game code is no longer copied into every bundle. In a view bundle, imports of the shared files are replaced by reads from `MinesweeperCore` (an esbuild plugin in `build.js`). Plain `<script>` tags are used instead of ES-module code splitting on purpose: browsers block module scripts on `file://` pages, which would break opening the pages by double-click. No CDN is used. The bundles are committed so the pages run without installing anything; `node_modules/` is not committed. `src/game.js`, `src/viewmodel.js` and `src/rng.js` stay plain CommonJS-compatible scripts so the Node tests can `require` them directly.
 
 ## 4. Tests
-**Logic tests** (55; need only Node 18+, no install, Node's built-in runner):
+**Logic tests** (107; need only Node 18+, no install, Node's built-in runner):
 ```bash
 node --test
 ```
-They cover mine placement, numbers, flagging, flood-fill, win and loss, and undo of: the first move, a large flood-fill, a flag, empty history, after a loss, after a win; redo; chord; the ViewModel (custom clamping, presets, timer, best times, keyboard dispatch, multiple keys, settings and game export/import, corrupt-data fallback, autosave/resume, saved-game slots, best-times table); `Game.serialize/deserialize` including 13 kinds of tampered data; and seeded random numbers.
+They cover mine placement, numbers, flagging, flood-fill, win and loss, and undo of: the first move, a large flood-fill, a flag, empty history, after a loss, after a win; redo; chord; the ViewModel (custom clamping, presets, timer, best times, keyboard dispatch, multiple keys, settings and game export/import, corrupt-data fallback, autosave/resume, saved-game slots, best-times table); `Game.serialize/deserialize` including many kinds of tampered data and old save formats; and seeded random numbers. The newer tests (`test/game-modes.test.js`, `test/viewmodel-modes.test.js`) cover each extended feature: `?` marks, scanner and shield, lives, undo limit and penalty, time attack and time-out, zen, two players, hex and wrap-around neighbours and flood-fill, seeds, hints (never on a mine over 150 random boards), no-guess boards finished using hints alone on every shape and size, 3BV, replay frames ending exactly where the game ended, statistics counted once per game, badge rules, the daily seed, share-link validation, and options.
 
-**Browser tests** (Playwright; 21 checks run against each of `index.html`, `vue.html` and `react.html`, in five projects: desktop Chrome, Firefox, WebKit (Safari's engine), a Pixel 7 phone (Android Chrome, touch) and an iPhone 14 (Safari, touch)):
+**Browser tests** (Playwright; 39 checks run against each of `index.html`, `vue.html` and `react.html`, in five projects: desktop Chrome, Firefox, WebKit (Safari's engine), a Pixel 7 phone (Android Chrome, touch) and an iPhone 14 (Safari, touch)):
 ```bash
 npm install
 npx playwright install               # once: downloads Chromium, Firefox and WebKit
@@ -86,10 +127,10 @@ npm run test:e2e                     # all projects
 npm run test:e2e -- --project=webkit # just one
 PW_CHANNEL=chrome npm run test:e2e   # use your own Chrome for the two Chromium projects instead of Playwright's
 ```
-They start `scripts/serve.js` themselves and drive a real browser: safe first click and flood-fill, flags, undo/redo, loss, win, chord, keyboard play, key rebinding (saved across reload), saved difficulty and custom size, timer, saved mute/volume, settings download/upload (including bad and oversized files), autosave resume, game download/upload, rejecting a tampered game file, saved-game slots, the best-times table, board layout on a phone-sized screen (the board must not stick out past the screen edge, even on Expert), touch long-press to flag (and that the click after a long-press is ignored), and tap to reveal. Each page is opened with `?seed=11`; the test builds the same board with the `Game` model (same seed and first click give the same mines), so it knows where mines and numbers are. Deliberate bugs in `chord` and in the board's scrolling CSS made the matching tests fail, then the code was restored.
+They start `scripts/serve.js` themselves and drive a real browser: safe first click and flood-fill, flags, undo/redo, loss, win, chord, keyboard play, key rebinding (saved across reload), saved difficulty and custom size, timer, saved mute/volume, settings download/upload (including bad and oversized files), autosave resume, game download/upload, rejecting a tampered game file, saved-game slots, the best-times table, board layout on a phone-sized screen (the board must not stick out past the screen edge, even on Expert), touch long-press to flag (and that the click after a long-press is ignored), tap to reveal, and the extended features: the `?` cycle, hints, hover help, dimmed numbers, options, lives, power-ups, two players, zen / time attack / limited undo, hex and wrap-around boards (with the numbers on screen checked against neighbours worked out independently of the game code), no-guess boards finished by following hints, the daily challenge, share links, statistics and badges, replay, and themes. Each page is opened with `?seed=11`; the test builds the same board with the `Game` model (same seed and first click give the same mines), so it knows where mines and numbers are. Deliberate bugs in `chord`, in the board's scrolling CSS, in the hex and wrap-around neighbour rules and in number dimming made the matching tests fail, then the code was restored.
 
 ## 5. Report
-**Game/rules/design:** see sections 1-2. **Implementation:** logic/UI separation; state changes happen only through `reveal`, `toggleFlag`, `undo`, `newGame`; the UI re-renders the whole grid after each action. **Undo design:** full-state snapshots (81 cells, cheap) chosen over storing diffs because they are impossible to get subtly wrong. **Testing:** 55/55 logic tests pass; browser tests pass in Chrome, WebKit, an Android phone profile and an iPhone profile (246 passed, 6 skipped: tap-to-reveal needs a touch screen). **Firefox is configured but was not run:** Firefox would not start inside this development sandbox ("Could not find profile folder"), so those results are unknown under `node --test`; the GUI was not automatically tested, only the logic. **Limitations:** the sound and the touch long-press (desktop Chrome only; sound was never listened to); phone results come from emulated devices (touch is simulated with pointer events; there was no real phone) has no automated tests (keyboard, chord, saved settings, key rebinding, multiple keys and export/import were checked manually in a browser, and are now covered by the browser tests in all three views; sound was never listened to); custom sizes are capped at 30x40; first-move undo re-randomises mines, history is unbounded (fine at this size).
+**Game/rules/design:** see sections 1-2. **Implementation:** logic/UI separation; state changes happen only through `reveal`, `toggleFlag`, `undo`, `newGame`; the UI re-renders the whole grid after each action. **Undo design:** full-state snapshots (81 cells, cheap) chosen over storing diffs because they are impossible to get subtly wrong. **Testing:** 107/107 logic tests pass; browser tests pass in Chrome, WebKit, an Android phone profile and an iPhone profile (4 projects x 117 tests: 462 passed, 6 skipped because tap-to-reveal needs a touch screen). **Firefox is configured but was not run:** Firefox would not start inside this development sandbox ("Could not find profile folder"), so those results are unknown under `node --test`; the GUI was not automatically tested, only the logic. **Limitations:** the sound and the touch long-press (desktop Chrome only; sound was never listened to); phone results come from emulated devices (touch is simulated with pointer events; there was no real phone) has no automated tests (keyboard, chord, saved settings, key rebinding, multiple keys and export/import were checked manually in a browser, and are now covered by the browser tests in all three views; sound was never listened to); custom sizes are capped at 30x40; first-move undo re-randomises mines, history is unbounded (fine at this size).
 
 ## 6. Demo script
 1. Open `index.html`. Note Mines: 10, Undo disabled.
@@ -114,8 +155,10 @@ git add README.md && git commit -m "Add report and demo plan"
 ```
 (Because the files already exist, use `git add -p` to split `game.js` honestly across the logic/rules/undo commits, or merge those into one commit.)
 
-## Optional enhancements still not implemented
+## Not done
 - Run the Firefox project and confirm it passes (it needs a machine where Firefox can start).
 - Test on a real phone; make cells on the Expert board bigger on phones (they stay 16 px, so the board scrolls sideways inside itself).
-- Name your saved-game slots; more than three slots.
-- Share Vue/React between pages (they still each bundle their own framework).
+- Two-player over the network (it is hot-seat only); no AI opponent.
+- No-guess boards are built after the first click, so they cannot be shared as links or used for the daily challenge.
+- Hints use only single-number and subset logic; a board that needs deeper reasoning (or a global mine count) reports "no certain move" even if one exists. The solver and the no-guess generator use the same rules, so a no-guess board is always finishable by hints.
+- Name your saved-game slots; more than three slots; sound has no volume-per-effect UI.

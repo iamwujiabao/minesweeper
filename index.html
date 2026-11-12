@@ -15,10 +15,32 @@
     <button id="new">New Game</button>
     <button id="undo">Undo</button>
     <button id="redo">Redo</button>
+    <button id="hint" title="Highlight a cell that is certainly safe">Hint</button>
+    <button id="scanner" hidden title="Count the mines around a cell you click">Scanner</button>
+    <button id="replay" hidden>Replay</button>
     <label><input type="checkbox" id="sound"> Sound</label> <input type="range" id="volume" min="0" max="1" step="0.1" title="volume">
   </div>
-  <div id="status"></div><p><small>Touch: long-press to flag. Keyboard keys are listed (and rebindable) below.</small></p>
+  <div id="status"></div>
+  <div id="replaybar" class="replaybar" hidden>
+    <button id="replay-prev">&#9664; Step back</button> <button id="replay-play">&#9654; Play</button>
+    <button id="replay-next">Step &#9654;</button> <button id="replay-close">Close replay</button>
+  </div>
+  <div id="hoverInfo"></div>
+  <p><small>Touch: long-press to flag. Keyboard keys are listed (and rebindable) below.</small></p>
   <details id="keys"><summary>Keys</summary><div id="keylist"></div><button id="resetkeys">Reset keys</button> <span id="keymsg"></span></details>
+  <details id="options"><summary>Game options</summary>
+    <div id="optionsForm"></div>
+    <small id="optionsNote"></small>
+  </details>
+  <details id="daily-panel"><summary>Daily challenge and sharing</summary>
+    <p><button id="daily">Start today's daily challenge</button> <small>(the same board for everyone, classic rules)</small></p>
+    <p><input id="shareLink" readonly size="46" placeholder="Share link"> <button id="copyLink">Copy link</button> <span id="shareMsg"></span></p>
+  </details>
+  <details id="progress"><summary>Statistics and achievements</summary>
+    <table id="stats"></table>
+    <ul id="achievements"></ul><br>
+    <button id="clear-stats">Reset statistics and badges</button>
+  </details>
   <details id="saves"><summary>Saved games and best times</summary>
     <div id="slots"></div>
     <table id="scores"></table>
