@@ -966,4 +966,81 @@ test.describe('Minesweeper', () => {
     const r2 = await page.evaluate(() => ({ structure: window.__structure, kept: [...document.querySelectorAll('#board .cell')].filter(e => e.dataset.mark !== undefined).length }));
     expect(r2).toEqual({ structure: 0, kept: 81 });
   });
+
+  // ---- later features ----
+  test('assists: best guess highlights one cell, flag check works once, hidden counter and puzzle modes switch them off', async ({ page }) => {
+    await load(page);
+    await cell(page, 4, 4).click();
+    await page.click('#assists-btn'); await page.click('#bestguess');
+    await expect(page.locator('#board .cell.guess')).toHaveCount(1);
+    await expect(page.locator('#status')).toContainText('Best guess');
+    await cell(page, 0, 0).click({ button: 'right' });
+    await page.click('#assists-btn'); await page.click('#checkflags');
+    await expect(page.locator('#assists-btn')).toBeEnabled();
+    await page.click('#assists-btn');
+    await expect(page.locator('#checkflags')).toBeDisabled();            // once per game
+    await closeOverlay(page);
+    await page.evaluate(() => { vm.save = () => {}; localStorage.removeItem('ms-game'); localStorage.setItem('ms-options', JSON.stringify({ mode: 'blind' })); });
+    await load(page);
+    await expect(page.locator('#mines')).toHaveText('???');
+    await cell(page, 4, 4).click();
+    await expect(page.locator('#hint')).toBeDisabled();
+    await expect(page.locator('#assists-btn')).toBeDisabled();
+  });
+
+  test('timeline slider jumps through the game, checkpoints go back, coins show in the header', async ({ page }) => {
+    await load(page);
+    for (const c of [0, 1, 2]) await cell(page, 0, c).click({ button: 'right' });
+    await expect(page.locator('#timeline')).toHaveAttribute('max', '3');
+    await page.locator('#timeline').fill('1');
+    await expect(page.locator('#board .cell.flag, #board .cell:has-text("🚩")')).toHaveCount(1);
+    await expect(page.locator('#timelineLabel')).toContainText('Move 1 of 3');
+    await page.locator('#timeline').fill('3');
+    await expect(page.locator('#board .cell:has-text("🚩")')).toHaveCount(3);
+    await page.click('#cp-set');
+    await cell(page, 1, 0).click({ button: 'right' });
+    await page.click('#cp-back');
+    await expect(page.locator('#board .cell:has-text("🚩")')).toHaveCount(3);
+    await expect(page.locator('#coins')).toHaveText('0');
+  });
+
+  test('shop: coins buy a theme and power-ups; power-up buttons appear when power-ups are on', async ({ page }) => {
+    await page.addInitScript(() => { if (!localStorage.getItem('ms-shop')) localStorage.setItem('ms-shop', JSON.stringify({ coins: 100, themes: [], stock: {} })); localStorage.setItem('ms-options', JSON.stringify({ powerups: true })); });
+    await load(page);
+    await expect(page.locator('#coins')).toHaveText('100');
+    for (const id of ['rowbtn', 'colbtn', 'scanner']) await expect(page.locator('#' + id)).toBeVisible();
+    await openSide(page);
+    await page.click('#buy-theme-ocean');
+    await expect(page.locator('#buy-theme-ocean')).toHaveText('Owned');
+    await expect(page.locator('#coins')).toHaveText('70');
+    await closeSide(page);
+    await openSettings(page, 'appearance'); // the theme list is in the header
+    await closeOverlay(page);
+    await page.selectOption('#opt-theme', 'ocean');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'ocean');
+    await cell(page, 4, 4).click();
+    await page.click('#rowbtn');
+    await expect(page.locator('#rowbtn')).toHaveClass(/armed/);
+    await cell(page, 0, 4).click();
+    await expect(page.locator('#rowbtn')).toContainText('(0)');
+  });
+
+  test('weekly challenge, a win with stars, and a ghost race of your best win', async ({ page }) => {
+    await load(page);
+    await openNewGame(page); await page.click('#weekly');
+    await expect(page.locator('#status')).toContainText('Weekly challenge');
+    await closeOverlay(page);
+    const g = model();
+    await page.evaluate(() => { vm.save = () => {}; localStorage.clear(); });
+    await load(page);
+    await cell(page, 4, 4).click();
+    for (const [r, c] of hiddenSafe(g)) { if (await page.locator('#result').isVisible()) break; if (!(await cell(page, r, c).evaluate(el => el.classList.contains('open')))) await cell(page, r, c).click(); }   // a click can open neighbours too
+    await expect(page.locator('#result')).toBeVisible();
+    await expect(page.locator('#resultStars')).toContainText('★');
+    await expect(page.locator('#coins')).not.toHaveText('0');
+    await expect(page.locator('#race-ghost')).toBeVisible();
+    await page.click('#result-close');
+    await page.click('#race-ghost');
+    await expect(page.locator('#ghostbar')).toBeVisible();
+  });
 });

@@ -3,7 +3,7 @@
 (function (root) {
   const Levels = typeof module !== 'undefined' ? require('./levels.js') : root.Levels;
   const TOP = 5;   // best-time rows kept per difficulty
-  const emptyCounters = () => ({ played: 0, won: 0, lost: 0, duels: 0, streak: 0, bestStreak: 0, bestBvs: 0, last: null });
+  const emptyCounters = () => ({ played: 0, won: 0, lost: 0, duels: 0, streak: 0, bestStreak: 0, bestBvs: 0, last: null, missions: 0, threeStars: 0, bestSurvival: 0, puzzles: [] });
 
   // Badges. test(ctx) is run when a game finishes; ctx describes the finished game (see Stats.record).
   const ACHIEVEMENTS = [
@@ -21,7 +21,25 @@
     { id: 'beat-the-clock', name: 'Beat the clock', desc: 'Win a time-attack game', test: x => x.won && x.mode === 'timeattack' },
     { id: 'zen-master', name: 'Zen master', desc: 'Win a game in Zen mode', test: x => x.won && x.mode === 'zen' },
     { id: 'duellist', name: 'Duellist', desc: 'Finish a two-player game', test: x => x.players === 2 },
+    { id: 'three-stars', name: 'Three stars', desc: 'Win with a three-star rating', test: x => x.won && x.stars === 3 },
+    { id: 'mission', name: 'Mission accomplished', desc: 'Complete a game mission', test: x => x.missionDone },
+    { id: 'puzzler', name: 'Puzzler', desc: 'Solve a puzzle', test: x => x.won && !!x.puzzle },
+    { id: 'puzzle-master', name: 'Puzzle master', desc: 'Solve all five puzzles', test: x => x.puzzlesSolved >= 5 },
+    { id: 'blindfolded', name: 'Blindfolded', desc: 'Win with the mine counter hidden', test: x => x.won && x.mode === 'blind' },
+    { id: 'beat-the-ai', name: 'Beat the computer', desc: 'Win a game against the computer', test: x => x.vsAiWin },
+    { id: 'survivor-5', name: 'Deep survivor', desc: 'Reach board 5 in Survival', test: x => x.survivalStage >= 5 },
+    { id: 'shifty', name: 'Shifty', desc: 'Win a Shifting mines game', test: x => x.won && x.mode === 'shifting' },
+    { id: 'weekly', name: 'Weekly winner', desc: 'Win a weekly challenge', test: x => x.won && x.weekly },
+    { id: 'ghost-buster', name: 'Ghost buster', desc: 'Beat your own ghost', test: x => x.beatGhost },
   ];
+
+  // 1 to 3 stars for a win, from the time per 3BV unit (how fast you cleared the board for how hard it was). null when
+  // there was no clock.
+  function starsFor(bv, seconds, timed) {
+    if (!timed || !(seconds > 0) || !(bv > 0)) return null;
+    const perUnit = seconds / bv;
+    return perUnit <= 1.2 ? 3 : perUnit <= 2.5 ? 2 : 1;
+  }
 
   class Stats {
     constructor(storage) {
@@ -55,17 +73,22 @@
     // "Unlocked: First win" (or '').
     record(ctx) {
       const st = this.counters, won = ctx.won;
+      this.lastStars = won ? starsFor(ctx.bv, ctx.time, ctx.timed) : null;
+      if (this.lastStars === 3) st.threeStars++;
+      if (ctx.missionDone) st.missions++;
+      if (won && ctx.puzzle && !st.puzzles.includes(ctx.puzzle)) st.puzzles.push(ctx.puzzle);
+      if (ctx.survivalStage) st.bestSurvival = Math.max(st.bestSurvival, ctx.survivalStage);
       const bvs = won && ctx.time > 0 && ctx.timed ? Math.round((ctx.bv / ctx.time) * 100) / 100 : null;
       if (ctx.players === 2) st.duels++;           // two-player games do not count as wins or losses
       else {
         st.played++;
         if (won) { st.won++; st.streak++; st.bestStreak = Math.max(st.bestStreak, st.streak); } else { st.lost++; st.streak = 0; }
         if (bvs && bvs > st.bestBvs) st.bestBvs = bvs;
-        st.last = { bv: ctx.bv, time: ctx.time, bvs, won };
+        st.last = { bv: ctx.bv, time: ctx.time, bvs, won, stars: this.lastStars };
       }
       this.storage.setItem('ms-stats', JSON.stringify(st));
       if (won && ctx.eligibleForBest && ctx.time > 0) this.recordWin(ctx.level, ctx.time);
-      const fresh = ACHIEVEMENTS.filter(a => !this.unlocked[a.id] && a.test({ ...ctx, streak: st.streak }));
+      const fresh = ACHIEVEMENTS.filter(a => !this.unlocked[a.id] && a.test({ ...ctx, streak: st.streak, stars: this.lastStars, puzzlesSolved: st.puzzles.length }));
       for (const a of fresh) this.unlocked[a.id] = Date.now();
       if (!fresh.length) return '';
       this.storage.setItem('ms-ach', JSON.stringify(this.unlocked));
@@ -79,7 +102,8 @@
       const s = this.counters, decided = s.won + s.lost, l = s.last;
       return [['Games played', s.played], ['Won', s.won], ['Lost', s.lost], ['Win rate', decided ? Math.round((s.won / decided) * 100) + '%' : '–'],
               ['Win streak now', s.streak], ['Best win streak', s.bestStreak], ['Best 3BV/s', s.bestBvs || '–'],
-              ['Last game 3BV', l ? l.bv : '–'], ['Last game 3BV/s', l && l.bvs ? l.bvs : '–'], ['Two-player games', s.duels]];
+              ['Last game 3BV', l ? l.bv : '–'], ['Last game 3BV/s', l && l.bvs ? l.bvs : '–'], ['Two-player games', s.duels],
+              ['Three-star wins', s.threeStars], ['Missions completed', s.missions], ['Puzzles solved', s.puzzles.length + ' of 5'], ['Best Survival board', s.bestSurvival || '–']];
     }
     achievementsView() { return ACHIEVEMENTS.map(a => ({ id: a.id, name: a.name, desc: a.desc, unlocked: !!this.unlocked[a.id] })); }
 
@@ -91,7 +115,10 @@
         for (const k of ['played', 'won', 'lost', 'duels', 'streak', 'bestStreak']) if (Number.isInteger(s[k]) && s[k] >= 0) base[k] = s[k];
         if (Number.isFinite(s.bestBvs) && s.bestBvs >= 0) base.bestBvs = s.bestBvs;
         const l = s.last;
-        if (l && Number.isInteger(l.bv) && Number.isInteger(l.time) && (l.bvs === null || Number.isFinite(l.bvs)) && typeof l.won === 'boolean') base.last = { bv: l.bv, time: l.time, bvs: l.bvs, won: l.won };
+        if (l && Number.isInteger(l.bv) && Number.isInteger(l.time) && (l.bvs === null || Number.isFinite(l.bvs)) && typeof l.won === 'boolean')
+          base.last = { bv: l.bv, time: l.time, bvs: l.bvs, won: l.won, stars: [1, 2, 3].includes(l.stars) ? l.stars : null };
+        for (const k of ['missions', 'threeStars', 'bestSurvival']) if (Number.isInteger(s[k]) && s[k] >= 0) base[k] = s[k];
+        if (Array.isArray(s.puzzles)) base.puzzles = s.puzzles.filter((id, i) => typeof id === 'string' && /^p\d$/.test(id) && s.puzzles.indexOf(id) === i);
       } catch (e) {}
       return base;
     }
@@ -117,7 +144,7 @@
       return out;
     }
   }
-  Stats.ACHIEVEMENTS = ACHIEVEMENTS; Stats.TOP = TOP;
+  Stats.ACHIEVEMENTS = ACHIEVEMENTS; Stats.TOP = TOP; Stats.starsFor = starsFor;
 
   if (typeof module !== 'undefined') module.exports = Stats; else root.Stats = Stats;
 })(this);

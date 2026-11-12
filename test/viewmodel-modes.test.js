@@ -26,7 +26,7 @@ function loseGame(vm) { vm.click(vm.game.rows >> 1, vm.game.cols >> 1); const m 
 // ---- options ----
 test('options: defaults, validation, saved, and applied to the next new game only', () => {
   const st = fakeStorage(), vm = make({}, st);
-  assert.deepStrictEqual(vm.options, { mode: 'classic', board: 'square', noGuess: false, powerups: false, questionMarks: true, dimNumbers: true, theme: 'auto' });
+  assert.deepStrictEqual(vm.options, { mode: 'classic', board: 'square', puzzle: 'p1', noGuess: false, powerups: false, questionMarks: true, dimNumbers: true, theme: 'auto' });
   assert.strictEqual(vm.setOption('mode', 'banana'), false);
   assert.strictEqual(vm.setOption('nope', 1), false);
   assert.strictEqual(vm.setOption('theme', 'dark'), true);
@@ -164,7 +164,7 @@ test('lives mode: status shows hearts, three hits end the game', () => {
 
 test('limited-undo mode allows 3 undos; undo-penalty mode adds 10 seconds per undo', () => {
   const lim = make({ options: { mode: 'undolimit' } });
-  lim.click(4, 4); lim.flag(0, 0); lim.flag(0, 1); lim.flag(0, 2); lim.flag(0, 3);
+  lim.flag(0, 0); lim.flag(0, 1); lim.flag(0, 2); lim.flag(0, 3);       // (opening cells would earn extra undos, see below)
   assert.match(lim.state().statusText, /Undos left: 3/);
   lim.undo(); lim.undo(); lim.undo();
   assert.strictEqual(lim.state().canUndo, false);
@@ -236,7 +236,7 @@ test('statistics: played, win rate, streaks, 3BV and 3BV/s, counted once per gam
   clearBoard(vm, 20);
   const bv = vm.game.bbbv();
   assert.deepStrictEqual([vm.stats.played, vm.stats.won, vm.stats.streak], [1, 1, 1]);
-  assert.deepStrictEqual(vm.stats.last, { bv, time: 20, bvs: Math.round((bv / 20) * 100) / 100, won: true });
+  assert.deepStrictEqual(vm.stats.last, { bv, time: 20, bvs: Math.round((bv / 20) * 100) / 100, won: true, stars: vm.lastStars });
   assert.strictEqual(vm.stats.bestBvs, vm.stats.last.bvs);
   clearBoard(make({ seed: 8 }, st), 10);
   assert.strictEqual(new ViewModel(st).stats.streak, 2);

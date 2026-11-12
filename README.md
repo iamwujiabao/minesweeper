@@ -18,6 +18,13 @@ and open http://127.0.0.1:4173/ (or run python3 -m http.server in the folder).
 - Right-click (long-press on a phone, or Flag mode) flags, then marks with ?, then clears.
 - Arrow keys move, Enter or Space opens, F flags, H hints, U undoes, Y redoes, N starts a new game. The ? button lists every shortcut, and Settings, Controls changes them.
 
+## More to try
+
+- Hint with nothing certain shows mine chances; Assists has best guess, auto-flag and a one-time flag check.
+- The timeline slider jumps to any move; Set checkpoint and Back to checkpoint save a moment.
+- New game has modes: versus the computer, survival, puzzles, hidden counter, shifting mines; plus this week's challenge.
+- Win games to earn coins and stars, spend coins in the shop (Stats and saves), and race your best win with Race my best.
+
 ## Project layout
 
     index.html          the page

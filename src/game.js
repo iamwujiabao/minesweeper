@@ -15,6 +15,13 @@
     //  players 2      two players alternate moves and score points
     //  noGuess        build boards that can be finished by logic alone
     //  seed n         reproduce one specific board (otherwise a seed is drawn from rng)
+    //  undoEarnEvery n   with an undo limit, earn one more undo for every n safe cells opened
+    //  shiftEvery n   every n moves one unflagged mine moves somewhere else
+    //  moveLimit n    the game is lost after n reveal/chord moves
+    //  puzzle {mines, open}, puzzleId   a hand-made board: fixed mines and cells that start open
+    //  stage n        survival: which board of the run this is
+    //  bonus {scanner, shield, row, col, life, freeze}   extra power-up charges (bought in the shop)
+    //  freezeCharges n   time freezes the clock has (time attack)
     constructor(rows = 9, cols = 9, mines = 10, rng = Math.random, opts = {}) {
       this.rows = rows; this.cols = cols; this.mineCount = mines; this.rng = rng;
       this.topology = Topology.ids.includes(opts.topology) ? opts.topology : 'square';
@@ -24,6 +31,13 @@
       this.players = opts.players === 2 ? 2 : 1;
       this.noGuess = !!opts.noGuess;
       this.seed = Number.isInteger(opts.seed) ? opts.seed : Math.floor(rng() * 2147483647);
+      const int = (v, d = null) => (Number.isInteger(v) && v > 0 ? v : d);
+      this.earnEvery = int(opts.undoEarnEvery); this.shiftEvery = int(opts.shiftEvery); this.moveLimit = int(opts.moveLimit);
+      this.puzzleSetup = opts.puzzle || null; this.puzzleId = typeof opts.puzzleId === 'string' ? opts.puzzleId : null;
+      this.stage = int(opts.stage);
+      const b = opts.bonus || {};
+      this.bonus = { scanner: b.scanner | 0, shield: b.shield | 0, row: b.row | 0, col: b.col | 0, life: b.life | 0, freeze: b.freeze | 0 };
+      this.baseFreeze = int(opts.freezeCharges, 0);
       this.nb = Topology.buildNeighbors(rows, cols, this.topology);        // neighbour indexes per cell (the topology Strategy)
       this.nbPairs = this.nb.map(list => list.map(i => [Math.floor(i / cols), i % cols]));
       this.newGame();
@@ -40,8 +54,11 @@
       this.redoStack = [];       // snapshots undone and available to redo
       // State that undo restores (it is in every snapshot):
       this.lives = this.initialLives;                 // null when not playing with lives
-      this.scanner = this.powerups ? 3 : 0;           // scanner charges left
-      this.shield = this.powerups ? 1 : 0;            // shield charges left
+      this.scanner = this.powerups ? 3 + this.bonus.scanner : 0;           // scanner charges left
+      this.shield = this.powerups ? 1 + this.bonus.shield : 0;             // shield charges left
+      this.rowCharges = this.powerups ? 1 + this.bonus.row : 0;            // "reveal a row" charges left
+      this.colCharges = this.powerups ? 1 + this.bonus.col : 0;            // "reveal a column" charges left
+      this.lifeCharges = this.powerups && this.initialLives !== null ? 1 + this.bonus.life : 0;   // extra lives left to use
       this.scans = [];                                // [{r, c, n}] scanner results
       this.current = 0;                               // whose turn (two players)
       this.scores = [0, 0];                           // cells revealed per player
@@ -51,7 +68,17 @@
       this.undoCount = 0;
       this.undosLeft = this.undoLimit;
       this.hintsUsed = 0;
+      this.flagChecks = 0;                            // the one-time wrong-flag check
+      this.earned = 0;                                // undos earned so far (limited-undo mode)
+      this.shiftedAt = -1;                            // moveCount when a mine last moved
+      this.freezeCharges = this.powerups ? this.baseFreeze + this.bonus.freeze : 0;   // time freezes left (the clock is not undone)
+      this.shieldStart = this.shield;                 // shield charges at the start, to tell whether one was used
+      this.mines0 = null;                             // where the mines were at the start (replays need it when mines move)
       this.guessFree = true;                          // false if a no-guess board could not be built
+      if (this.puzzleSetup) {                         // a hand-made puzzle starts with its mines and some cells already open
+        this.setMines(this.puzzleSetup.mines);
+        for (const [r, c] of this.puzzleSetup.open) this.openCell(r, c);
+      }
     }
 
     neighbors(r, c) { return this.nbPairs[r * this.cols + c]; }
@@ -98,6 +125,7 @@
         for (let c = 0; c < this.cols; c++)
           this.cells[r][c].adjacent = this.neighbors(r, c).filter(([a, b]) => this.cells[a][b].mine).length;
       this.minesPlaced = true;
+      this.mines0 = list.map(([r, c]) => [r, c]);
     }
 
     // ---- Undo (Memento) ----
@@ -107,6 +135,7 @@
       return { cells: this.cells.map(row => row.map(cell => ({ ...cell }))), status: this.status,
                minesPlaced: this.minesPlaced, exploded: this.exploded && { ...this.exploded },
                lives: this.lives, scanner: this.scanner, shield: this.shield, scans: this.scans.map(s => ({ ...s })),
+               rowCharges: this.rowCharges, colCharges: this.colCharges, lifeCharges: this.lifeCharges,
                current: this.current, scores: [...this.scores], moveCount: this.moveCount };
     }
     restoreMemento(m) { Object.assign(this, m); }
@@ -167,22 +196,111 @@
         this.status = 'won';
         for (const row of this.cells) for (const k of row) if (k.mine && !k.revealed) { k.flagged = true; k.question = false; }
       }
+      this._earnUndos();
+      if (this.status === 'playing') { this._shiftMine(); this._checkMoveLimit(); }
       if (this.players === 2 && this.status === 'playing') this.current = 1 - this.current;
     }
+
+    // Moves that open cells (reveal, chord, row/column power-up) in effect; this is what move limits and shifting count.
+    movesUsed() { return this.moves.slice(0, this.moveCount).filter(m => 'rcwv'.includes(m.type)).length; }
+
+    // Limited-undo mode with undoEarnEvery: one more undo for every N safe cells opened. Each threshold pays out once,
+    // even if the cells are opened again after an undo.
+    _earnUndos() {
+      if (!this.earnEvery || this.undosLeft === null) return;
+      const opened = this.cells.flat().filter(c => c.revealed && !c.mine).length;
+      while (opened >= (this.earned + 1) * this.earnEvery) { this.earned++; this.undosLeft++; }
+    }
+
+    // Shifting mines: after every shiftEvery-th move, one unflagged mine moves. Only mines that touch no open number move,
+    // and only to cells that touch no open number, so no number on the board changes; undo puts it back (it is part of
+    // the memento). The choice comes from the game's seed, so a replay moves the same mine.
+    _shiftMine() {
+      if (!this.shiftEvery) return;
+      const used = this.movesUsed();
+      if (used === 0 || used % this.shiftEvery !== 0) return;
+      const calm = (r, c) => this.neighbors(r, c).every(([y, x]) => !this.cells[y][x].revealed);
+      const from = [], to = [];
+      this.cells.forEach((row, r) => row.forEach((cell, c) => {
+        if (cell.revealed || cell.flagged || !calm(r, c)) return;
+        (cell.mine ? from : to).push([r, c]);
+      }));
+      if (!from.length || !to.length) return;
+      const rnd = Rng.mulberry32(this.seed * 31 + used);
+      const [fr, fc] = from[Math.floor(rnd() * from.length)], [tr, tc] = to[Math.floor(rnd() * to.length)];
+      this.cells[fr][fc].mine = false; this.cells[tr][tc].mine = true;
+      for (const [r, c] of [[fr, fc], [tr, tc], ...this.neighbors(fr, fc), ...this.neighbors(tr, tc)])
+        this.cells[r][c].adjacent = this.neighbors(r, c).filter(([y, x]) => this.cells[y][x].mine).length;
+      this.shiftedAt = this.moveCount;
+    }
+
+    // Puzzle boards: too many moves loses the game (a lost game with no mine hit; undo can take it back).
+    _checkMoveLimit() {
+      if (this.moveLimit && this.movesUsed() >= this.moveLimit) this.status = 'lost';
+    }
+
+    // What the solver is allowed to see: the open numbers (and mines already hit). The global mine count is safe to use
+    // even after a shield: a mine the shield left hidden is still one of the hidden cells.
+    _visible() {
+      const flat = this.cells.flat();
+      return { revealed: flat.map(c => (c.revealed && !c.mine ? 1 : 0)), num: flat.map(c => c.adjacent), known: flat.map(c => (c.revealed && c.mine ? 1 : 0)) };
+    }
+    _coords(i) { return { r: Math.floor(i / this.cols), c: i % this.cols }; }
 
     // Hint: a hidden cell that is certainly safe, worked out only from what the player can see (the open numbers).
     // Returns {r, c} or null. Not a move: it does not change the board, only counts as a hint used.
     hint() {
       if (this.status !== 'playing' || !this.minesPlaced) return null;
-      const flat = this.cells.flat();
-      const revealed = flat.map(c => (c.revealed && !c.mine ? 1 : 0)), num = flat.map(c => c.adjacent);
-      const knownMine = flat.map(c => (c.revealed && c.mine ? 1 : 0)); // mines already hit in lives mode
-      // (the global mine count is only used while the shield has not hidden a mine under a flag)
-      const i = Solver.hint(this.nb, revealed, num, knownMine, this.powerups && this.shield === 0 ? undefined : this.mineCount);
+      const v = this._visible(), i = Solver.hint(this.nb, v.revealed, v.num, v.known, this.mineCount);
       if (i < 0) return null;
       this.hintsUsed++;
-      return { r: Math.floor(i / this.cols), c: i % this.cols };
+      return this._coords(i);
     }
+
+    // Cells whose chance of being a mine is 1 according to the solver, not yet flagged: [{r, c}].
+    provenMines() {
+      const v = this._visible(), { mine } = Solver.deduce(this.nb, v.revealed, v.num, v.known, this.mineCount), out = [];
+      for (let i = 0; i < mine.length; i++) {
+        const cell = this.cells[Math.floor(i / this.cols)][i % this.cols];
+        if (mine[i] && !cell.revealed && !cell.flagged) out.push(this._coords(i));
+      }
+      return out;
+    }
+
+    // Mine chance for every hidden cell (see Solver.probabilities), as percentages 0-100 in a flat array (null = no
+    // answer). Counts as a hint used; returns null before the first click or after the game.
+    chances() {
+      if (this.status !== 'playing' || !this.minesPlaced) return null;
+      const v = this._visible(), p = Solver.probabilities(this.nb, v.revealed, v.num, v.known, this.mineCount);
+      this.hintsUsed++;
+      return Array.from(p, (x, i) => (v.revealed[i] || x < 0 ? null : Math.round(x * 100)));
+    }
+    // The hidden cell that is safest to open: {r, c, chance}. Counts as a hint used.
+    bestGuess() {
+      if (this.status !== 'playing' || !this.minesPlaced) return null;
+      const v = this._visible(), p = Solver.probabilities(this.nb, v.revealed, v.num, v.known, this.mineCount);
+      const i = Solver.bestGuess(this.nb, v.revealed, p);
+      if (i < 0) return null;
+      this.hintsUsed++;
+      return { ...this._coords(i), chance: Math.round(p[i] * 100) };
+    }
+
+    // One-time check: which flags are wrong? Returns [{r, c}] (maybe empty), or null if it is not available.
+    checkFlags() {
+      if (this.status !== 'playing' || !this.minesPlaced || this.flagChecks >= 1) return null;
+      this.flagChecks++;
+      const wrong = [];
+      this.cells.forEach((row, r) => row.forEach((cell, c) => { if (cell.flagged && !cell.mine) wrong.push({ r, c }); }));
+      return wrong;
+    }
+
+    // Time freeze power-up (time attack): uses a charge. The clock itself is the ViewModel's; undo does not give it back.
+    useFreeze() {
+      if (this.status !== 'playing' || this.freezeCharges <= 0) return false;
+      this.freezeCharges--;
+      return true;
+    }
+    shieldUsed() { return this.powerups && this.shield < this.shieldStart; }
 
     // ---- Undo / redo / time ----
     started() { return this.history.length > 0; }             // at least one move made
@@ -237,11 +355,13 @@
     // Frames of the game as it was played (only the moves still in effect): frame 0 is the blank board, frame k the
     // board after k moves. Built by playing the moves again on a copy with the same mines.
     replayFrames() {
-      const mines = [];
-      this.cells.forEach((row, r) => row.forEach((cell, c) => { if (cell.mine) mines.push([r, c]); }));
+      let mines = this.mines0;                          // where the mines started (they may have moved since)
+      if (!mines) { mines = []; this.cells.forEach((row, r) => row.forEach((cell, c) => { if (cell.mine) mines.push([r, c]); })); }
       const g = new Game(this.rows, this.cols, this.mineCount, Math.random,
-        { topology: this.topology, lives: this.initialLives, powerups: this.powerups, players: this.players, seed: this.seed });
-      g.setMines(mines);
+        { topology: this.topology, lives: this.initialLives, powerups: this.powerups, players: this.players, seed: this.seed,
+          shiftEvery: this.shiftEvery, moveLimit: this.moveLimit, bonus: this.bonus, freezeCharges: this.baseFreeze,
+          puzzle: this.puzzleSetup, puzzleId: this.puzzleId });
+      if (!this.puzzleSetup) g.setMines(mines);
       const frame = () => ({ cells: g.cells.map(row => row.map(cell => ({ ...cell }))), status: g.status, lives: g.lives,
                              scans: g.scans.map(s => ({ ...s })), current: g.current, scores: [...g.scores], exploded: g.exploded && { ...g.exploded } });
       const frames = [frame()];

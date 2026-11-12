@@ -43,7 +43,9 @@ test('commands write themselves as [type, row, col] and come back with fromJSON'
   const cmds = [new Commands.RevealCommand(1, 2), new Commands.ChordCommand(3, 4), new Commands.MarkCommand(0, 0, false), new Commands.MarkCommand(0, 1, true), new Commands.ScanCommand(2, 2)];
   assert.deepStrictEqual(cmds.map(c => c.toJSON()), [['r', 1, 2], ['c', 3, 4], ['f', 0, 0], ['q', 0, 1], ['s', 2, 2]]);
   for (const c of cmds) assert.deepStrictEqual(Commands.fromJSON(c.toJSON()).toJSON(), c.toJSON());
-  for (const bad of [null, 'r', ['r', 1], ['x', 0, 0], ['rr', 0, 0], [1, 0, 0], ['r', 0, 0, 0]]) assert.strictEqual(Commands.fromJSON(bad), null);
+  for (const bad of [null, 'r', ['r', 1], ['x', 0, 0], ['rr', 0, 0], [1, 0, 0], ['r', 0, 0, -1], ['r', 0, 0, 'x'], ['r', 0, 0, 1, 2]]) assert.strictEqual(Commands.fromJSON(bad), null);
+  assert.deepStrictEqual(Commands.fromJSON(['r', 1, 2, 7]).toJSON(), ['r', 1, 2, 7]);          // with the clock reading
+  assert.deepStrictEqual(Commands.fromJSON(['a', 0, 0]).toJSON(), ['a', 0, 0]);
 });
 
 test('running a command is the same as calling the Game shortcut, and the game keeps its commands', () => {
@@ -82,13 +84,13 @@ test('Memento: undo restores exactly what createMemento saved', () => {
 
 // ---- Strategy: modes ----
 test('every game mode is one small strategy object', () => {
-  assert.deepStrictEqual(Modes.ids, ['classic', 'lives', 'undolimit', 'undopenalty', 'timeattack', 'zen', 'twoplayer']);
+  assert.deepStrictEqual(Modes.ids, ['classic', 'lives', 'undolimit', 'undopenalty', 'timeattack', 'zen', 'twoplayer', 'ai', 'survival', 'puzzle', 'blind', 'shifting']);
   assert.strictEqual(Modes.get('no such mode').id, 'classic');
   const game = new Game(9, 9, 10);
-  assert.deepStrictEqual(Modes.list.map(m => m.gameOptions()), [{}, { lives: 3 }, { undoLimit: 3 }, {}, {}, {}, { players: 2 }]);
+  assert.deepStrictEqual(Modes.list.map(m => m.gameOptions()), [{}, { lives: 3 }, { undoLimit: 3, undoEarnEvery: 20 }, {}, {}, {}, { players: 2 }, { players: 2 }, { lives: 3 }, {}, {}, { shiftEvery: 5 }]);
   assert.deepStrictEqual(Modes.list.filter(m => m.recordsBestTimes).map(m => m.id), ['classic']);
   assert.deepStrictEqual(Modes.list.filter(m => !m.usesClock).map(m => m.id), ['zen']);
-  assert.deepStrictEqual(Modes.list.map(m => m.undoPenalty), [0, 0, 0, 10, 0, 0, 0]);
+  assert.deepStrictEqual(Modes.list.map(m => m.undoPenalty), [0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0]);
   const attack = Modes.get('timeattack');
   assert.strictEqual(attack.timeLimit(game), 122);
   assert.strictEqual(attack.timeText(20, game), '102');
@@ -108,7 +110,7 @@ test('modes say what the status line and result overlay should show', () => {
   assert.match(Modes.get('twoplayer').outcomeText('lost', two), /Player 2 hit a mine, so Player 1 wins/);
   assert.strictEqual(Modes.get('twoplayer').resultTitle('won', two), 'Board cleared!');
   assert.strictEqual(Modes.get('classic').resultTitle('won', two), 'You won!');
-  assert.deepStrictEqual(Modes.get('undolimit').statusParts(new Game(5, 5, 5, Math.random, { undoLimit: 3 })), ['Undos left: 3']);
+  assert.match(Modes.get('undolimit').statusParts(new Game(5, 5, 5, Math.random, { undoLimit: 3 }))[0], /^Undos left: 3/);
 });
 
 // ---- Options, KeyBindings ----
@@ -143,7 +145,7 @@ test('Stats: counters, streaks, 3BV/s, best times (top 5), badges, reset', () =>
                                  shieldUsed: false, daily: false, players: 1, bv: 30, timed: true, eligibleForBest: true, ...over });
   const notice = s.record(ctx());
   assert.match(notice, /Unlocked: First win, Speed demon, Clean win/);
-  assert.deepStrictEqual(s.counters.last, { bv: 30, time: 20, bvs: 1.5, won: true });
+  assert.deepStrictEqual(s.counters.last, { bv: 30, time: 20, bvs: 1.5, won: true, stars: 3 });
   assert.strictEqual(s.record(ctx({ time: 25 })), '');                                  // nothing new to unlock
   s.record(ctx({ won: false }));
   assert.deepStrictEqual([s.counters.played, s.counters.won, s.counters.lost, s.counters.streak, s.counters.bestStreak], [3, 2, 1, 0, 2]);

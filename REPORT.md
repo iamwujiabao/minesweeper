@@ -53,7 +53,22 @@ Assumptions:
 - Clicks that change nothing (an open or flagged cell, a finished game) are not moves and are not recorded.
 - Best times count only comparable games: classic mode, square board, no power-ups, no hints, not a custom size.
 
-Extra features, all built on the same model: power-ups (a scanner that counts mines in a 3x3 area and a shield that survives one mine), hints, hover help on numbers, dimmed finished numbers, Lives / Limited undo / Undo costs 10 s / Time attack / Zen / Two players modes, no-guess boards, a daily challenge and share links, statistics with 3BV and 3BV/s, 14 achievement badges, replay, three themes, keyboard play with rebindable keys, saved-game slots, and download and upload of settings and games.
+Extra features, all built on the same model: power-ups (a scanner that counts mines in a 3x3 area and a shield that survives one mine), hints, hover help on numbers, dimmed finished numbers, Lives / Limited undo / Undo costs 10 s / Time attack / Zen / Two players modes, no-guess boards, a daily challenge and share links, statistics with 3BV and 3BV/s, 24 achievement badges, replay, five themes (two from the shop), keyboard play with rebindable keys, saved-game slots, and download and upload of settings and games.
+
+Smarter help, built on the solver (src/solver.js):
+- Probability hint: when no move is certain, Hint shows every hidden cell's mine chance in percent (exact, from the frontier and the total mine count). Best guess highlights the lowest-chance cell. Both count as hints.
+- Auto-flag flags every mine the logic proves, as one undoable move. It counts as a hint. Wrong-flag check marks flags on safe cells with a cross; it works once per game and costs 15 seconds.
+- Hints, best guess and auto-flag are disabled in Puzzle and Hidden counter modes. A game that used any help is not a best-time record.
+
+Undo-based play:
+- Undo timeline: a slider over all moves jumps to any earlier or later state (each step is an undo or redo, so Limited undo and Undo costs 10 s still apply). Checkpoints remember a moment; returning counts as one undo.
+- Earned undos: in Limited undo, one more undo for every 20 safe cells opened (the earned count is not part of the memento, so undo cannot farm it).
+
+Modes added: Versus the computer (the solver plays: provably safe cells first, otherwise the lowest-chance guess), Survival (clearing a board starts a bigger, denser one and lives carry over), Puzzle (five fixed boards with a move limit), Hidden counter (no mine counter, no hints) and Shifting mines (every 5 moves one unflagged mine moves; undo and replay restore it exactly).
+
+Power-ups and progression: reveal a row, reveal a column, extra life (lives modes) and time freeze (timed modes), on top of scanner and shield. Coins are earned from wins (more for stars, level, challenge and mission) and spent in a shop on power-ups for the next games and on two themes (Ocean, Sunset). Stars (1 to 3) come from time per 3BV unit.
+
+Goals: a mission is picked for each game (for example win without flags, or without chording) and rewards coins; the weekly challenge is a fixed seed, mode and board shape for the ISO week; a ghost race replays your best win of the same board next to you and shows who is ahead.
 
 ## 3. Architecture
 
@@ -152,6 +167,11 @@ Files in src/:
 | stats.js | Statistics, badges and the best-times table |
 | savemanager.js | Autosave, slots and game files |
 | presenter.js | What each cell looks like and which cells animate |
+| ai.js | The computer opponent (safe cell by logic, else the lowest-chance guess) |
+| puzzles.js | The five fixed puzzle boards |
+| challenges.js | Missions and the weekly challenge rule |
+| shop.js | Coins, shop items and owned themes |
+| ghosts.js | Best wins kept for ghost races |
 | viewmodel.js | The facade: the session, the clock, replay, tips, state() |
 | app.js, a11y.js, sound.js, settingsfile.js | The view and its helpers (DOM code) |
 
@@ -252,7 +272,7 @@ Logic tests (Node's built-in runner, no install):
 
     node --test
 
-There are 145 tests. They cover mine placement, numbers, flagging, flood-fill, win and loss, and undo of the first move, a large flood-fill, a flag, with an empty history, after a loss and after a win; redo; chording; all game modes; hex and wrap-around boards; seeds; hints (never on a mine over many random boards on every shape, with power-ups); no-guess boards finished by hints alone; the solver rules on small hand-made boards; 3BV; replay frames; saving, loading and many kinds of tampered data; the autosave cap; the pattern classes one by one (topology, commands, mementos, modes, options, key bindings, stats, save manager, the observer); and the colour contrast of every theme.
+There are 192 tests. They cover mine placement, numbers, flagging, flood-fill, win and loss, and undo of the first move, a large flood-fill, a flag, with an empty history, after a loss and after a win; redo; chording; all game modes; hex and wrap-around boards; seeds; hints (never on a mine over many random boards on every shape, with power-ups); no-guess boards finished by hints alone; the solver rules on small hand-made boards; 3BV; replay frames; saving, loading and many kinds of tampered data; the autosave cap; the pattern classes one by one (topology, commands, mementos, modes, options, key bindings, stats, save manager, the observer); the exact probabilities (checked against brute force), assists, power-up commands, earned undos, shifting mines with undo and replay, the computer opponent, survival, puzzles (each one is checked to be solvable by local logic inside its move limit), hidden counter, timeline and checkpoints, shop and coins, stars, missions, the weekly challenge, ghost races, and the colour contrast of every theme.
 
 Browser tests (optional, Playwright):
 
@@ -260,16 +280,17 @@ Browser tests (optional, Playwright):
     npx playwright install
     npm run test:e2e
 
-57 checks run in five projects: desktop Chrome, Firefox, Safari (WebKit), an Android phone and an iPhone. They drive the real page: safe first click and flood-fill, flags, undo and redo, loss and win, chording, keyboard play, key rebinding, saved settings, saved games and slots, the best-times table, hints, modes, hex and wrap-around boards, replay, the daily challenge, share links, themes, accessibility labels and focus, and the layout on a phone. Pages are opened with a seed so the test knows where the mines are. Deliberate bugs in the chord rule, the hex and wrap-around neighbour rules, number dimming, board rebuilding, reduced motion and arrow-key focus each made the matching test fail, then the code was restored.
+61 checks run in five projects: desktop Chrome, Firefox, Safari (WebKit), an Android phone and an iPhone. They drive the real page: safe first click and flood-fill, flags, undo and redo, loss and win, chording, keyboard play, key rebinding, saved settings, saved games and slots, the best-times table, hints, modes, hex and wrap-around boards, replay, the daily challenge, share links, themes, accessibility labels and focus, and the layout on a phone. Pages are opened with a seed so the test knows where the mines are. Deliberate bugs in the chord rule, the hex and wrap-around neighbour rules, number dimming, board rebuilding, reduced motion and arrow-key focus each made the matching test fail, then the code was restored.
 
-Results: 145 of 145 logic tests pass. The browser tests pass in Chrome, WebKit, the Android phone and the iPhone profiles. Firefox is configured but was not run: it would not start inside the development sandbox, so its results are unknown.
+Results: 192 of 192 logic tests pass. The browser tests pass in Chrome, WebKit, the Android phone and the iPhone profiles. Firefox is configured but was not run: it would not start inside the development sandbox, so its results are unknown.
 
 ## 7. Limitations
 
 - Sound has no automated test and was never listened to. The phone results come from emulated devices, not a real phone.
 - On a phone the toolbar wraps onto several rows, so the board starts lower than on a desktop, and Expert scrolls sideways inside its card.
-- The solver does not do full probability reasoning: boards that need a real guess, or a deduction across large overlapping regions, are reported as needing a guess. Only about 8 percent of random Expert boards are fully solvable by logic.
-- Two players share one screen (hot-seat); there is no network play and no computer opponent.
+- Boards that need a real guess cannot be finished by logic, so no-guess hints end there; the probability hint then shows the best odds, but it is still a guess. Very large frontiers stop the exact count at a node limit and show no percentages. Only about 8 percent of random Expert boards are fully solvable by logic.
+- Two players share one screen (hot-seat); there is no network play. The computer opponent is the same solver, so it is a fair but not human-like player.
+- The five puzzles were picked by a program from generated boards and checked to be solvable by local logic within their move limit; they are not hand-designed. Checkpoints live in memory and are lost on reload.
 - No-guess boards are built after the first click, so they cannot be shared as links or used for the daily challenge.
 - The autosave keeps the newest 100 undo steps only; a resumed very long game cannot undo further back.
 

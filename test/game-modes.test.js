@@ -282,7 +282,7 @@ test('saves from before the new features still load', () => {
 test('tampered new fields are rejected', () => {
   const base = () => JSON.parse(JSON.stringify(Serializer.serialize(wall({ powerups: true, lives: 3, undoLimit: 2 }))));
   const bad = [
-    d => { d.topology = 'cube'; }, d => { d.lives = 7; }, d => { d.lives = null; }, d => { d.scanner = 9; }, d => { d.shield = 2; },
+    d => { d.topology = 'cube'; }, d => { d.lives = 7; }, d => { d.lives = null; }, d => { d.scanner = 500; }, d => { d.shield = 500; },
     d => { d.scans = [{ r: 0, c: 0, n: 99 }]; }, d => { d.current = 1; }, d => { d.scores = [1]; }, d => { d.moveCount = 3; },
     d => { d.moves = [['x', 0, 0]]; }, d => { d.moves = [['r', 99, 0]]; }, d => { d.undosLeft = null; }, d => { d.undosLeft = 500; },
     d => { d.players = 3; }, d => { d.seed = -1; }, d => { d.fmt = 3; }, d => { d.powerups = 'yes'; },

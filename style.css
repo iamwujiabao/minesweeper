@@ -131,7 +131,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
 [role=tab] { border: none; border-bottom: 3px solid transparent; border-radius: 8px 8px 0 0; background: transparent; padding: 8px 14px; }
 [role=tab][aria-selected=true] { border-bottom-color: var(--accent); font-weight: 700; }
 [popover] { margin: 0; inset: auto; top: 96px; left: 50%; transform: translateX(-50%); width: min(420px, 94vw); background: var(--card); color: var(--fg); border: 1px solid var(--border);
-            border-radius: 14px; padding: 14px 16px; box-shadow: var(--shadow); text-align: left; }
+            border-radius: 14px; padding: 14px 16px; box-shadow: var(--shadow); text-align: left; max-height: calc(100dvh - 112px); overflow-y: auto; }
 .field { margin: 10px 0; }
 .field label { display: block; font-weight: 600; }
 .field .note, .note { display: block; font-size: .82rem; color: var(--muted); margin-top: 2px; font-weight: 400; }
@@ -179,4 +179,26 @@ table { border-collapse: collapse; margin: 6px 0; }
   button:not(.cell), select, input[type=number], [role=tab] { min-height: 44px; }
   button:not(.cell) { min-width: 44px; }
   input[type=checkbox] { width: 24px; height: 24px; }
+}
+
+/* ---------- Assists, power-ups, timeline, ghost, shop, stars ---------- */
+.cell.prob { font-size: calc(var(--s) * .3); font-weight: 700; }
+.cell.prob-low { color: var(--n2); } .cell.prob-mid { color: var(--n1); } .cell.prob-high { color: var(--n3); }
+.cell.guess { box-shadow: inset 0 0 0 4px var(--accent); animation: pulse 1s ease-in-out infinite alternate; }
+.coins { margin-left: auto; font-size: .95rem; }
+.timeline { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin: 6px 0; }
+.timeline input[type=range] { flex: 1 1 140px; max-width: 320px; }
+.ghostbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; font-size: .85rem; margin: 4px 0; }
+.ghostbar progress { width: 160px; accent-color: var(--accent); }
+.stars { font-size: 1.8rem; color: #b7791f; letter-spacing: .1em; }
+.shop { list-style: none; padding: 0; margin: 4px 0; } .shop li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 2px 0; }
+[data-theme="ocean"] {
+  --bg: #e6f2f5; --card: #ffffff; --panel: #eaf4f6; --accent: #006d77; --accent-soft: #d3eef0;
+  --cell: #bcd3d9; --cell-hi: #ffffff; --cell-lo: #6d8b94; --cell-open: #e2eef1; --boom: #f2a28f;
+  --hint: #0b6b3a; --nb: #9a3412; --cursor: #005f6b; --focus: #005f6b;
+}
+[data-theme="sunset"] {
+  --bg: #fbefe6; --card: #fffaf6; --panel: #fbefe6; --accent: #9d2f6b; --accent-soft: #f6dcea;
+  --cell: #e3c7b8; --cell-hi: #fffaf6; --cell-lo: #92705f; --cell-open: #f4e6dc; --boom: #f0a070;
+  --hint: #0b6b3a; --nb: #7a2e00; --cursor: #8a2560; --focus: #8a2560;
 }

@@ -14,6 +14,8 @@ const themes = {
   light: base,
   dark: { ...base, ...find('[data-theme="dark"]') },
   colorblind: { ...base, ...find('[data-theme="colorblind"]') },
+  ocean: { ...base, ...find('[data-theme="ocean"]') },
+  sunset: { ...base, ...find('[data-theme="sunset"]') },
   'auto (dark device)': { ...base, ...find('[data-theme="auto"]') },
 };
 

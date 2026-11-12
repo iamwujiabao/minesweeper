@@ -24,6 +24,20 @@
     return h >>> 1;
   }
 
+  // Weekly challenge: one id and one seed for each ISO week (Monday to Sunday, UTC), e.g. "2026-W46".
+  function weeklyId(date) {
+    const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));                      // the Thursday of this week decides the year
+    const week = Math.ceil(((d - Date.UTC(d.getUTCFullYear(), 0, 1)) / 86400000 + 1) / 7);
+    return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+  }
+  function weeklySeed(id) {
+    let h = 2166136261;
+    const text = 'minesweeper-weekly-' + id;
+    for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return h >>> 1;
+  }
+
   // "?play=ROWSxCOLSxMINES-TOPOLOGY-SEED" -> {rows, cols, mines, topology, seed}, or null if missing or not valid.
   // The URL is untrusted input, so every number is range-checked.
   function parsePlay(search) {
@@ -34,6 +48,6 @@
     return { rows, cols, mines, topology: m[4], seed };
   }
 
-  const api = { mulberry32, rngFromSearch, dailyId, dailySeed, parsePlay };
+  const api = { mulberry32, rngFromSearch, dailyId, dailySeed, weeklyId, weeklySeed, parsePlay };
   if (typeof module !== 'undefined') module.exports = api; else root.Rng = api;
 })(this);

@@ -3,6 +3,7 @@
 (function (root) {
   const dep = (name, global) => (typeof module !== 'undefined' ? require(name) : root[global]);
   const Serializer = dep('./serializer.js', 'Serializer'), Levels = dep('./levels.js', 'Levels'), Modes = dep('./modes.js', 'Modes');
+  const Puzzles = dep('./puzzles.js', 'Puzzles'), Challenges = dep('./challenges.js', 'Challenges');
   const SLOTS = 3;
   const AUTOSAVE_HISTORY = 100;   // the autosave keeps only the newest 100 undo steps, so its size stays bounded
 
@@ -15,7 +16,7 @@
     // The data to save. info: {level, custom, mode (id), daily, elapsed, game}. full: keep the whole undo history.
     static toData(info, full) {
       return { version: 1, type: 'game', level: info.level, custom: info.custom, mode: info.mode, daily: info.daily,
-               elapsed: info.elapsed, game: Serializer.serialize(info.game, full ? {} : { maxHistory: AUTOSAVE_HISTORY }) };
+               weekly: info.weekly, mission: info.mission, elapsed: info.elapsed, game: Serializer.serialize(info.game, full ? {} : { maxHistory: AUTOSAVE_HISTORY }) };
     }
 
     // ---- Autosave and files ----
@@ -55,11 +56,16 @@
       if (!Number.isInteger(d.elapsed) || d.elapsed < 0 || d.elapsed > 1e7) return null;
       const mode = d.mode === undefined ? 'classic' : d.mode;
       if (!Modes.has(mode) || !(d.daily === undefined || d.daily === null || /^\d{4}-\d{2}-\d{2}$/.test(d.daily))) return null;
+      if (!(d.weekly === undefined || d.weekly === null || /^\d{4}-W\d{2}$/.test(d.weekly))) return null;
+      if (!(d.mission === undefined || d.mission === null || Challenges.MISSIONS.some(x => x.id === d.mission))) return null;
       const custom = Levels.clampCustom(d.custom), game = Serializer.deserialize(d.game, rng);
       if (!game) return null;
-      const [r, c, m] = d.level === 'custom' ? custom : Levels.LEVELS[d.level];
-      if (game.rows !== r || game.cols !== c || game.mineCount !== m) return null;
-      return { level: d.level, custom, mode, daily: d.daily || null, elapsed: d.elapsed, game };
+      let dims = d.level === 'custom' ? custom : Levels.LEVELS[d.level];
+      const m = Modes.get(mode);
+      if (m.isSurvival) { if (!game.stage) return null; dims = m.boardFor(game.stage); }          // survival boards grow, puzzles are fixed
+      else if (m.isPuzzle) { if (!game.puzzleId) return null; const pz = Puzzles.get(game.puzzleId); dims = [pz.rows, pz.cols, pz.mines.length]; }
+      if (game.rows !== dims[0] || game.cols !== dims[1] || game.mineCount !== dims[2]) return null;
+      return { level: d.level, custom, mode, daily: d.daily || null, weekly: d.weekly || null, mission: d.mission || null, elapsed: d.elapsed, game };
     }
   }
   SaveManager.SLOTS = SLOTS; SaveManager.AUTOSAVE_HISTORY = AUTOSAVE_HISTORY;

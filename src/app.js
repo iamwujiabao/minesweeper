@@ -118,13 +118,43 @@ function render(s) {
   resize(s);
   updateBoard(s);
   hoverOff();
-  $('mines').textContent = s.minesLeft;
+  $('mines').textContent = s.minesText;
+  $('coins').textContent = s.coins;
   $('time').textContent = s.timeText;
   $('new').textContent = s.face;
   $('best').textContent = s.best ? s.best + 's' : '-';
   $('undo').disabled = !s.canUndo;
   $('redo').disabled = !s.canRedo;
-  $('hint').disabled = s.status !== 'playing' || !!s.replay;
+  const live = s.status === 'playing' && !s.replay;
+  $('hint').disabled = !live || !s.assists.allowed;
+  for (const id of ['bestguess', 'autoflag']) $(id).disabled = !live || !s.assists.allowed;
+  $('checkflags').disabled = !live || !s.assists.allowed || !s.assists.canCheckFlags;
+  $('assists-btn').disabled = !live || !s.assists.allowed;
+  const pu = s.powerupsInfo;
+  for (const [id, label, count, show, armed] of [['rowbtn', 'Row', pu.row, true, pu.lineMode === 'row'], ['colbtn', 'Column', pu.col, true, pu.lineMode === 'col'],
+      ['lifebtn', '+1 life', pu.life, pu.canLife, false], ['freezebtn', 'Freeze', pu.freeze, pu.canFreeze, false]]) {
+    const b = $(id);
+    b.hidden = !s.powerups || !show;
+    b.textContent = `${label} (${count})`;
+    b.disabled = !armed && (count === 0 || !live);
+    b.classList.toggle('armed', armed);
+  }
+  $('freezebtn').textContent = pu.freezeLeft ? `Frozen ${pu.freezeLeft}s` : `Freeze (${pu.freeze})`;
+  const tl = $('timeline');
+  tl.max = s.timeline.total; tl.value = s.timeline.position; tl.disabled = !s.timeline.canJump || !!s.replay;
+  tl.setAttribute('aria-valuetext', s.timeline.label);
+  $('timelineLabel').textContent = s.timeline.label;
+  $('cp-set').disabled = !live;
+  $('cp-back').disabled = !s.checkpoint.canReturn;
+  $('cp-back').textContent = s.checkpoint.set ? 'Back to checkpoint' : 'No checkpoint';
+  $('race-ghost').hidden = !s.canRace || s.status === 'playing' && s.timeline.total === 0 && !s.ghost;
+  $('mission').hidden = !s.mission; if (s.mission) $('mission').textContent = 'Mission: ' + s.mission.text;
+  $('ghostbar').hidden = !s.ghost;
+  if (s.ghost) {
+    $('ghostOpened').textContent = s.ghost.opened; $('ghostTotal').textContent = s.ghost.total; $('ghostTime').textContent = s.ghost.time;
+    $('ghostYou').max = s.ghost.total; $('ghostYou').value = s.ghost.you;
+  }
+  renderShop(s);
   $('scanner').hidden = !s.powerups;
   $('scanner').textContent = `Scanner (${s.scanner})`;
   $('scanner').disabled = !s.scanMode && (s.scanner === 0 || s.status !== 'playing');
@@ -141,6 +171,8 @@ function render(s) {
   if (s.result) {
     $('resultTitle').textContent = s.result.title; $('resultDetail').textContent = s.result.detail;
     $('resultTime').textContent = s.result.time; $('resultBest').textContent = s.result.best;
+    $('resultStars').textContent = s.result.stars ? '★'.repeat(s.result.stars) + '☆'.repeat(3 - s.result.stars) : '';
+    $('resultStars').setAttribute('aria-label', s.result.stars ? s.result.stars + ' of 3 stars' : '');
     $('result-undo').disabled = !s.result.canUndo; $('result-replay').hidden = !s.result.canReplay;
   }
   $('sound').checked = !s.muted;
@@ -249,6 +281,19 @@ function renderSaves(s) {
       return e ? `<td title="${e.date}">${e.t}s</td>` : '<td></td>'; // numbers and locale dates only: nothing user-typed goes into the HTML
     }).join('') + '</tr>').join('') + '</tbody>';
 }
+function renderShop(s) {
+  $('shopCoins').textContent = s.coins;
+  $('shopMsg').textContent = s.shop.message || '';
+  $('shop').replaceChildren();
+  for (const i of s.shop.items) {
+    const li = document.createElement('li'), b = document.createElement('button');
+    b.id = 'buy-' + i.id; b.textContent = i.owned ? 'Owned' : `Buy (${i.price})`;
+    b.disabled = i.owned || !i.affordable;
+    b.onclick = () => vm.buy(i.id);
+    li.append(i.name + (i.kind === 'powerup' ? ` (have ${i.stock}) ` : ' '), b);
+    $('shop').append(li);
+  }
+}
 function renderProgress(s) {
   $('stats').replaceChildren();
   for (const [label, value] of s.stats) {
@@ -278,6 +323,18 @@ $('daily').onclick = () => vm.startDaily();
 $('undo').onclick = () => vm.undo();
 $('redo').onclick = () => vm.redo();
 $('hint').onclick = () => vm.hint();
+$('bestguess').onclick = () => vm.bestGuess();
+$('autoflag').onclick = () => vm.autoFlag();
+$('checkflags').onclick = () => vm.checkFlags();
+$('rowbtn').onclick = () => vm.toggleLine('row');
+$('colbtn').onclick = () => vm.toggleLine('col');
+$('lifebtn').onclick = () => vm.useLife();
+$('freezebtn').onclick = () => vm.useFreeze();
+$('timeline').oninput = e => vm.jumpTo(Number(e.target.value));
+$('cp-set').onclick = () => vm.setCheckpoint();
+$('cp-back').onclick = () => vm.returnToCheckpoint();
+$('race-ghost').onclick = () => vm.raceGhost();
+$('weekly').onclick = () => vm.startWeekly();
 $('scanner').onclick = () => vm.toggleScanner();
 $('flagmode').onclick = () => vm.toggleFlagMode();
 $('replay').onclick = () => vm.startReplay();
