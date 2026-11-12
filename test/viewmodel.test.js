@@ -82,3 +82,42 @@ test('chord command only chords: on a hidden cell it does nothing', () => {
   assert.strictEqual(vm.game.cells.flat().filter(c => c.revealed).length, open);
   assert.deepStrictEqual(vm.state().cursor, { r: 0, c: 0 });
 });
+
+test('difficulty and custom size are saved and restored', () => {
+  const st = fakeStorage(), a = new ViewModel(st);
+  assert.strictEqual(a.level, 'beginner');
+  a.start('custom', [12, 14, 20]);
+  const b = new ViewModel(st); // next visit
+  assert.strictEqual(b.level, 'custom');
+  assert.deepStrictEqual([b.state().rows, b.state().cols, b.state().minesLeft], [12, 14, 20]);
+  a.start('expert');
+  const c = new ViewModel(st);
+  assert.strictEqual(c.level, 'expert');
+  assert.deepStrictEqual(c.custom, [12, 14, 20]); // custom size remembered while on another level
+});
+
+test('corrupt saved settings fall back to defaults', () => {
+  const st = fakeStorage();
+  st.setItem('ms-level', 'nonsense'); st.setItem('ms-custom', '{oops'); st.setItem('ms-keys', 'null');
+  const vm = new ViewModel(st);
+  assert.strictEqual(vm.level, 'beginner');
+  assert.deepStrictEqual(vm.custom, [9, 9, 10]);
+  assert.strictEqual(vm.actionFor('f'), 'flag');
+  st.setItem('ms-keys', JSON.stringify({ flag: ['x'], chord: ['x'] })); // duplicate keys
+  assert.strictEqual(new ViewModel(st).actionFor('x'), undefined);
+});
+
+test('key map: defaults, rebinding, conflicts, persistence, reset', () => {
+  const st = fakeStorage(), vm = new ViewModel(st);
+  assert.strictEqual(vm.actionFor('F'), 'flag');       // case-insensitive letters
+  assert.strictEqual(vm.actionFor(' '), 'reveal');
+  assert.strictEqual(vm.rebind('flag', 'x'), true);
+  assert.strictEqual(vm.actionFor('x'), 'flag');
+  assert.strictEqual(vm.actionFor('f'), undefined);    // old key freed
+  assert.strictEqual(vm.rebind('chord', 'x'), false);  // already used
+  assert.strictEqual(vm.rebind('chord', 'Escape'), false); // reserved
+  assert.strictEqual(vm.rebind('bogus', 'z'), false);
+  assert.strictEqual(new ViewModel(st).actionFor('x'), 'flag'); // saved
+  vm.resetKeys();
+  assert.strictEqual(new ViewModel(st).actionFor('f'), 'flag');
+});

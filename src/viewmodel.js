@@ -4,6 +4,14 @@
   const G = typeof module !== 'undefined' ? require('./game.js').Game : root.Game;
   const LEVELS = { beginner: [9, 9, 10], intermediate: [16, 16, 40], expert: [16, 30, 99] }; // rows, cols, mines
 
+  // Keyboard actions and their default keys (arrays so an action can have aliases). Single letters are lowercase.
+  const DEFAULT_KEYS = {
+    up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'],
+    reveal: ['Enter', ' '], flag: ['f'], chord: ['c'], mute: ['m'], undo: ['u'], redo: ['y'], newGame: ['n'],
+  };
+  const normKey = k => (k.length === 1 ? k.toLowerCase() : k);
+  const UNBINDABLE = ['Shift', 'Control', 'Alt', 'Meta', 'Escape', 'Tab', 'CapsLock'];
+
   // Keep custom sizes sane; max mines leaves room for the safe first-click area.
   function clampCustom([rows, cols, mines]) {
     const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v)) || lo));
@@ -24,9 +32,13 @@
       this.custom = [9, 9, 10];
       // Sound settings persist: muted flag and master volume (0..1, default 0.5).
       const v = storage.getItem('ms-volume');
+      this.keys = this._loadKeys();
+      // Saved difficulty / custom size (corrupt or missing data falls back to defaults).
+      try { const c = JSON.parse(storage.getItem('ms-custom')); if (Array.isArray(c) && c.length === 3) this.custom = clampCustom(c); } catch (e) {}
+      const saved = storage.getItem('ms-level');
       this.muted = storage.getItem('ms-muted') === '1';
       this.volume = v === null || isNaN(Number(v)) ? 0.5 : Math.min(1, Math.max(0, Number(v)));
-      this.start('beginner');
+      this.start(saved in LEVELS || saved === 'custom' ? saved : 'beginner');
     }
 
     start(level = this.level, custom = this.custom) {
@@ -34,6 +46,8 @@
       if (level === 'custom') this.custom = custom = clampCustom(custom);
       const [r, c, m] = level === 'custom' ? custom : LEVELS[level];
       this.game = new G(r, c, m);
+      this.storage.setItem('ms-level', level);
+      if (level === 'custom') this.storage.setItem('ms-custom', JSON.stringify(custom));
       this.elapsed = 0;
       this.cursor = { r: 0, c: 0 }; // keyboard cursor
       this._changed();
@@ -43,6 +57,28 @@
     click(r, c) { this.cursor = { r, c }; this.game.cells[r][c].revealed ? this.game.chord(r, c) : this.game.reveal(r, c); this._changed(); }
     flag(r, c) { this.cursor = { r, c }; this.game.toggleFlag(r, c); this._changed(); }
     chord(r, c) { this.cursor = { r, c }; this.game.chord(r, c); this._changed(); } // chord only, never reveals
+    // Key map. actionFor: which action a pressed key triggers (undefined = none).
+    actionFor(key) { const k = normKey(key); return Object.keys(this.keys).find(a => this.keys[a].includes(k)); }
+    // Rebind an action to one key. Returns false (and changes nothing) for unknown actions, reserved keys, or keys already used.
+    rebind(action, key) {
+      const k = normKey(key), other = this.actionFor(k);
+      if (!(action in DEFAULT_KEYS) || UNBINDABLE.includes(k) || (other && other !== action)) return false;
+      this.keys = { ...this.keys, [action]: [k] };
+      this.storage.setItem('ms-keys', JSON.stringify(this.keys));
+      this.onChange(this.state());
+      return true;
+    }
+    resetKeys() { this.keys = this._loadKeys(true); this.storage.setItem('ms-keys', JSON.stringify(this.keys)); this.onChange(this.state()); }
+    _loadKeys(defaults) {
+      try {
+        const saved = defaults ? null : JSON.parse(this.storage.getItem('ms-keys'));
+        const keys = { ...DEFAULT_KEYS };
+        for (const a of Object.keys(DEFAULT_KEYS))
+          if (saved && Array.isArray(saved[a]) && saved[a].length && saved[a].every(k => typeof k === 'string')) keys[a] = saved[a];
+        const all = Object.values(keys).flat();
+        return new Set(all).size === all.length ? keys : { ...DEFAULT_KEYS }; // duplicates = corrupt: use defaults
+      } catch (e) { return { ...DEFAULT_KEYS }; }
+    }
     setMuted(m) { this.muted = !!m; this.storage.setItem('ms-muted', this.muted ? 1 : 0); this.onChange(this.state()); }
     setVolume(v) { this.volume = Math.min(1, Math.max(0, Number(v) || 0)); this.storage.setItem('ms-volume', this.volume); this.onChange(this.state()); }
     move(dr, dc) { // keyboard cursor, stays on the board
@@ -72,9 +108,9 @@
     state() {
       const g = this.game;
       return { level: this.level, custom: this.custom, rows: g.rows, cols: g.cols, cells: g.cells, cursor: this.cursor, status: g.status,
-               minesLeft: g.minesLeft(), muted: this.muted, volume: this.volume, time: this.elapsed, best: this.best(), canUndo: g.canUndo(), canRedo: g.canRedo() };
+               minesLeft: g.minesLeft(), keys: this.keys, muted: this.muted, volume: this.volume, time: this.elapsed, best: this.best(), canUndo: g.canUndo(), canRedo: g.canRedo() };
     }
   }
 
-  if (typeof module !== 'undefined') module.exports = { ViewModel, LEVELS, clampCustom, cellSize }; else root.ViewModel = ViewModel; root.cellSize = cellSize;
+  if (typeof module !== 'undefined') module.exports = { ViewModel, LEVELS, clampCustom, cellSize, DEFAULT_KEYS }; else root.ViewModel = ViewModel; root.cellSize = cellSize;
 })(this);

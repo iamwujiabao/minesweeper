@@ -46,12 +46,20 @@ const storage = {
   setItem: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} },
 };
 
+// Declared before the ViewModel exists: its constructor triggers the first render.
+let rebinding = null; // action waiting for its new key, or null
+const keyName = k => (k === ' ' ? 'Space' : k);
+const LABELS = { up: 'Cursor up', down: 'Cursor down', left: 'Cursor left', right: 'Cursor right', reveal: 'Reveal / chord',
+                 flag: 'Flag', chord: 'Chord only', mute: 'Mute', undo: 'Undo', redo: 'Redo', newGame: 'New game' };
+
 const vm = new ViewModel(storage, { onChange: render, onTick: t => { $('time').textContent = t; } });
 
 function newGame() { prev = null; vm.start(levelEl.value, [$('rows').value, $('cols').value, $('minesIn').value]); }
 
 function render(s) {
   playSound(s);
+  levelEl.value = s.level; // restored from saved settings on load
+  renderKeys(s.keys);
   customEl.hidden = s.level !== 'custom';
   [$('rows').value, $('cols').value, $('minesIn').value] = s.custom; // show clamped values
   boardEl.style.setProperty('--cols', s.cols);
@@ -96,15 +104,40 @@ function resize(s = vm.state()) {
 }
 window.onresize = () => resize();
 
-// Keyboard play. Ignored while typing in the custom-size fields.
+// Keyboard play. Keys map to actions through the ViewModel's (rebindable, saved) key map.
+function renderKeys(keys) {
+  $('keylist').innerHTML = '';
+  for (const a of Object.keys(LABELS)) {
+    const b = document.createElement('button');
+    b.textContent = LABELS[a] + ': ' + (rebinding === a ? 'press a key...' : keys[a].map(keyName).join(' / '));
+    b.onclick = () => { rebinding = a; $('keymsg').textContent = 'Esc cancels'; renderKeys(vm.state().keys); };
+    $('keylist').appendChild(b);
+  }
+}
+$('resetkeys').onclick = () => { rebinding = null; $('keymsg').textContent = ''; vm.resetKeys(); };
+
 document.onkeydown = e => {
+  if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
+  if (rebinding) { // the next key press becomes the binding
+    e.preventDefault();
+    if (e.key !== 'Escape') {
+      const ok = vm.rebind(rebinding, e.key);
+      $('keymsg').textContent = ok ? '' : keyName(e.key) + ' is reserved or already used';
+      if (!ok) return; // stay in rebinding mode so another key can be tried
+    } else $('keymsg').textContent = '';
+    rebinding = null;
+    renderKeys(vm.state().keys);
+    return;
+  }
+  // Ignored while typing in form fields or with shortcuts like Ctrl+R.
   if (e.target.matches?.('input[type=number], input[type=range], select') || e.ctrlKey || e.metaKey || e.altKey) return;
   const { r, c } = vm.state().cursor;
-  const keys = {
-    ArrowUp: () => vm.move(-1, 0), ArrowDown: () => vm.move(1, 0), ArrowLeft: () => vm.move(0, -1), ArrowRight: () => vm.move(0, 1),
-    Enter: () => vm.click(r, c), ' ': () => vm.click(r, c), f: () => vm.flag(r, c), c: () => vm.chord(r, c), m: () => vm.setMuted(!vm.state().muted), u: () => vm.undo(), y: () => vm.redo(), n: newGame,
+  const actions = {
+    up: () => vm.move(-1, 0), down: () => vm.move(1, 0), left: () => vm.move(0, -1), right: () => vm.move(0, 1),
+    reveal: () => vm.click(r, c), flag: () => vm.flag(r, c), chord: () => vm.chord(r, c),
+    mute: () => vm.setMuted(!vm.state().muted), undo: () => vm.undo(), redo: () => vm.redo(), newGame: newGame,
   };
-  const act = keys[e.key.length === 1 ? e.key.toLowerCase() : e.key];
+  const act = actions[vm.actionFor(e.key)];
   if (!act) return;
   e.preventDefault();
   document.activeElement.blur(); // so Space/Enter doesn't also press a focused toolbar button
