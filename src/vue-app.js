@@ -13,7 +13,7 @@ createApp({
     const time = ref(0);                      // separate so the timer doesn't recompute the board
     const custom = ref([9, 9, 10]);           // custom-size inputs
     const win = ref({ w: window.innerWidth, h: window.innerHeight });
-    const settingsText = ref(''), settingsMsg = ref('');
+    const settingsMsg = ref('');
     let lastLongPress = 0, pressTimer;
 
     const vm = new ViewModel(storage, {
@@ -48,10 +48,15 @@ createApp({
     const pressStart = (e, r, c) => { if (e.pointerType === 'touch') pressTimer = setTimeout(() => { lastLongPress = Date.now(); vm.flag(r, c); }, 450); };
     const pressEnd = () => clearTimeout(pressTimer);
 
-    const exportSettings = () => { settingsText.value = vm.exportSettings(); settingsMsg.value = 'Copy this text to keep it'; };
-    const importSettings = () => {
-      const r = vm.importSettings(settingsText.value);
-      settingsMsg.value = r.ok ? 'Imported' : 'Not imported: ' + r.error;
+    const downloadSettings = () => { SettingsFile.download(vm.exportSettings()); settingsMsg.value = 'Downloaded minesweeper-settings.json'; };
+    const uploadSettings = async e => {
+      const file = e.target.files[0];
+      e.target.value = ''; // so choosing the same file again still fires change
+      if (!file) return;
+      try {
+        const r = vm.importSettings(await SettingsFile.read(file));
+        settingsMsg.value = r.ok ? 'Imported ' + file.name : 'Not imported: ' + r.error;
+      } catch (err) { settingsMsg.value = 'Not imported: ' + err.message; }
     };
 
     onMounted(() => {
@@ -59,12 +64,12 @@ createApp({
       window.addEventListener('resize', () => { win.value = { w: window.innerWidth, h: window.innerHeight }; });
       document.addEventListener('keydown', e => {
         if (e.ctrlKey || e.metaKey || e.altKey) return;
-        if (!vm.rebinding && e.target.matches?.('input[type=number], input[type=range], textarea, select')) return;
+        if (!vm.rebinding && e.target.matches?.('input[type=number], input[type=range], select')) return;
         if (vm.pressKey(e.key)) { e.preventDefault(); document.activeElement.blur?.(); }
       });
     });
 
     return { vm, s, time, custom, px, items, statusText, labels: ACTION_LABELS, keyName: k => (k === ' ' ? 'Space' : k),
-             settingsText, settingsMsg, newGame, cellClick, cellFlag, pressStart, pressEnd, exportSettings, importSettings };
+             settingsMsg, newGame, cellClick, cellFlag, pressStart, pressEnd, downloadSettings, uploadSettings };
   },
 }).mount('#app');

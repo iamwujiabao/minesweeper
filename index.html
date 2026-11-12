@@ -3,7 +3,7 @@
 <link rel="stylesheet" href="style.css"></head>
 <body>
   <h1>Minesweeper</h1>
-  <p><small>Plain JavaScript view. <a href="vue.html">Vue version</a> (same game, same ViewModel).</small></p>
+  <p><small>Plain JavaScript view. <a href="vue.html">Vue version</a>, <a href="react.html">React version</a> (same game, same ViewModel).</small></p>
   <div id="bar">
     <select id="level"><option value="beginner">Beginner 9x9</option><option value="intermediate">Intermediate 16x16</option><option value="expert">Expert 16x30</option><option value="custom">Custom</option></select>
     <span id="custom" hidden>
@@ -19,13 +19,15 @@
   </div>
   <div id="status"></div><p><small>Touch: long-press to flag. Keyboard keys are listed (and rebindable) below.</small></p>
   <details id="keys"><summary>Keys</summary><div id="keylist"></div><button id="resetkeys">Reset keys</button> <span id="keymsg"></span></details>
-  <details id="settings"><summary>Settings export / import</summary>
-    <textarea id="settingsText" spellcheck="false" placeholder="Click Export, or paste exported settings here and click Import"></textarea><br>
-    <button id="export">Export</button> <button id="import">Import</button> <span id="settingsMsg"></span>
+  <details id="settings"><summary>Settings file</summary>
+    <button id="export">Download settings</button>
+    <label>Upload settings: <input type="file" id="settingsFile" accept=".json,application/json"></label>
+    <span id="settingsMsg"></span>
   </details><br>
   <div id="board"></div>
   <script src="src/game.js"></script>
   <script src="src/viewmodel.js"></script>
   <script src="src/sound.js"></script>
+  <script src="src/settingsfile.js"></script>
   <script src="src/app.js"></script>
 </body></html>

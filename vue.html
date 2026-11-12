@@ -2,10 +2,10 @@
 <html lang="en"><head><meta charset="utf-8"><title>Minesweeper (Vue)</title>
 <link rel="stylesheet" href="style.css"></head>
 <body>
-<!-- Same game and ViewModel as index.html; only the view is Vue 3 (loaded from a CDN, so this page needs internet). -->
+<!-- Same game and ViewModel as index.html; only the view is Vue 3 (local copy in vendor/, made by `npm run build`; works offline). -->
 <div id="app" v-cloak>
   <h1>Minesweeper <small>(Vue view)</small></h1>
-  <p><small><a href="index.html">Plain JavaScript version</a></small></p>
+  <p><small><a href="index.html">Plain JavaScript version</a>, <a href="react.html">React version</a></small></p>
   <div id="bar">
     <select :value="s.level" @change="newGame($event.target.value)">
       <option value="beginner">Beginner 9x9</option><option value="intermediate">Intermediate 16x16</option>
@@ -40,9 +40,10 @@
     <button @click="vm.resetKeys()">Reset keys</button> <span>{{ s.keyMessage }}</span>
   </details>
   <details>
-    <summary>Settings export / import</summary>
-    <textarea v-model="settingsText" spellcheck="false" placeholder="Click Export, or paste exported settings here and click Import"></textarea><br>
-    <button @click="exportSettings">Export</button> <button @click="importSettings">Import</button> <span>{{ settingsMsg }}</span>
+    <summary>Settings file</summary>
+    <button @click="downloadSettings">Download settings</button>
+    <label>Upload settings: <input type="file" accept=".json,application/json" @change="uploadSettings"></label>
+    <span>{{ settingsMsg }}</span>
   </details><br>
 
   <div id="board" :style="{ '--cols': s.cols, '--s': px + 'px' }">
@@ -51,9 +52,10 @@
             @pointerup="pressEnd" @pointerleave="pressEnd" @pointercancel="pressEnd">{{ it.text }}</button>
   </div>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.5.13/vue.global.prod.min.js"></script>
+<script src="vendor/vue.global.prod.js"></script>
 <script src="src/game.js"></script>
 <script src="src/viewmodel.js"></script>
 <script src="src/sound.js"></script>
+<script src="src/settingsfile.js"></script>
 <script src="src/vue-app.js"></script>
 </body></html>

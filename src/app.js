@@ -86,17 +86,22 @@ function renderKeys(s) {
 }
 $('resetkeys').onclick = () => vm.resetKeys();
 
-// Settings export / import (JSON in the text box).
-$('export').onclick = () => { $('settingsText').value = vm.exportSettings(); $('settingsMsg').textContent = 'Copy this text to keep it'; };
-$('import').onclick = () => {
-  const r = vm.importSettings($('settingsText').value);
-  $('settingsMsg').textContent = r.ok ? 'Imported' : 'Not imported: ' + r.error;
+// Settings file: download the JSON, or upload one (validated all-or-nothing by the ViewModel).
+$('export').onclick = () => { SettingsFile.download(vm.exportSettings()); $('settingsMsg').textContent = 'Downloaded minesweeper-settings.json'; };
+$('settingsFile').onchange = async e => {
+  const file = e.target.files[0];
+  e.target.value = ''; // so choosing the same file again still fires change
+  if (!file) return;
+  try {
+    const r = vm.importSettings(await SettingsFile.read(file));
+    $('settingsMsg').textContent = r.ok ? 'Imported ' + file.name : 'Not imported: ' + r.error;
+  } catch (err) { $('settingsMsg').textContent = 'Not imported: ' + err.message; }
 };
 
 // Keyboard: the ViewModel decides what a key means. Skip browser shortcuts and typing in fields.
 document.onkeydown = e => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if (!vm.rebinding && e.target.matches?.('input[type=number], input[type=range], textarea, select')) return;
+  if (!vm.rebinding && e.target.matches?.('input[type=number], input[type=range], select')) return;
   if (vm.pressKey(e.key)) { e.preventDefault(); document.activeElement.blur?.(); } // blur: Space/Enter must not also press a focused button
 };
 
