@@ -11,7 +11,7 @@
 - **Undo restores the exact previous state:** revealed cells, flags, mines, status, exploded cell. It works after a loss or a win.
 - **Flood-fill:** revealing a 0 cell opens its neighbours repeatedly (iterative stack). The snapshot is taken once, *before* the click, so the whole cascade is one undo step.
 - **Undoing the first move:** the snapshot predates mine placement, so undo returns to an empty, mine-less board. The next first click lays out *new* mines (still safe). Assumption: layout is not preserved.
-- Clicks that change nothing (revealed/flagged cell, game over) are not recorded. Undo on empty history does nothing (button disabled). **Redo** re-applies undone moves (undo/redo stacks of snapshots); making a new move clears redo. **Timer** counts seconds while a game is in progress and stops on win/loss; undoing the first move resets it. **Best time** per difficulty is kept in the browser's `localStorage`. **Touch:** long-press (450 ms) a cell to flag it. **Keyboard:** defaults are arrows move a highlighted cursor, Enter/Space reveal or chord, F flags, C chords only (never reveals), M toggles mute, U undo, Y redo, N new game. Every action is **rebindable** in the page's Keys panel and can have **several keys**: click "+ add key" then press a key (Esc cancels), or click a key's ✕ to remove it (an action always keeps one). Shift/Ctrl/Alt/Meta/Esc/Tab and keys already in use are refused; Reset keys restores defaults. **Settings file:** the Settings panel downloads difficulty, custom size, keys, mute and volume as `minesweeper-settings.json`, and uploads one back; an import is all-or-nothing (any invalid field, bad JSON, or a file over 100 KB is rejected and nothing changes). **Saved settings:** difficulty, custom size, key map, mute and volume persist in `localStorage`; corrupt saved data falls back to defaults. **Cell size** scales so the board fits the window (16-40 px). **Sound:** short Web Audio beeps for reveal, flag, undo, loss and win; each sound has its own relative volume, plus a master volume slider and a mute checkbox; mute and volume are saved in `localStorage` and restored next visit.
+- Clicks that change nothing (revealed/flagged cell, game over) are not recorded. Undo on empty history does nothing (button disabled). **Redo** re-applies undone moves (undo/redo stacks of snapshots); making a new move clears redo. **Timer** counts seconds while a game is in progress and stops on win/loss; undoing the first move resets it. **Best time** per difficulty is kept in the browser's `localStorage`. **Touch:** long-press (450 ms) a cell to flag it. **Keyboard:** defaults are arrows move a highlighted cursor, Enter/Space reveal or chord, F flags, C chords only (never reveals), M toggles mute, U undo, Y redo, N new game. Every action is **rebindable** in the page's Keys panel and can have **several keys**: click "+ add key" then press a key (Esc cancels), or click a key's ✕ to remove it (an action always keeps one). Shift/Ctrl/Alt/Meta/Esc/Tab and keys already in use are refused; Reset keys restores defaults. **Settings file:** the Files panel downloads difficulty, custom size, keys, mute and volume as `minesweeper-settings.json`. **Saved game:** a game in progress is autosaved after every move and resumes when you reopen the page (time included; finished or untouched games start fresh), and "Download game" saves it to `minesweeper-game.json`: board, flags, difficulty, elapsed time and the full undo/redo history (each board is one character per cell, so files stay small). One upload box takes either kind of file. Imports are all-or-nothing and checked hard, because a file is untrusted input: bad JSON, a file over 100 KB, wrong sizes or characters, a mine count or number that disagrees with the board, a board that does not match its difficulty, or a status that does not match the board are all rejected and nothing changes. A loaded finished game never records a best time. **`?seed=N`** in a page's URL makes the boards reproducible (used by the browser tests). **Saved settings:** difficulty, custom size, key map, mute and volume persist in `localStorage`; corrupt saved data falls back to defaults. **Cell size** scales so the board fits the window (16-40 px). **Sound:** short Web Audio beeps for reveal, flag, undo, loss and win; each sound has its own relative volume, plus a master volume slider and a mute checkbox; mute and volume are saved in `localStorage` and restored next visit.
 
 ## 2. Design (MVVM)
 | Part | File | Responsibility |
@@ -19,10 +19,10 @@
 | Model: `Game` | `src/game.js` | All rules: cells, mines, numbers, reveal, chord, flood-fill, flags, win/loss, undo/redo snapshot stacks. No DOM. |
 | Cell | plain object in `Game.cells` | `{mine, adjacent, revealed, flagged}` data only. |
 | ViewModel | `src/viewmodel.js` | UI state and commands (also keyboard cursor and `cellSize`): difficulty/custom size (clamped), timer, best times (via injected storage), click-vs-chord choice. Exposes `state()`; no DOM. |
-| View (plain JS) | `src/app.js` + `index.html` | Draws `vm.state()`, forwards clicks, right-clicks, long-presses, key presses and buttons to ViewModel commands. |
-| View (Vue 3) | `src/vue-app.js` + `vue.html` | The same job done with Vue; reuses the unchanged Game and ViewModel. Uses a local copy of Vue in `vendor/` (works offline). |
-| View (React 18) | `src/react-app.jsx` + `react.html` | The same job again with React hooks (`useSyncExternalStore` subscribes to the ViewModel). Source is JSX, so it is bundled into `dist/react-app.js`. |
-| Sound, settings file | `src/sound.js`, `src/settingsfile.js` | Web Audio beeps; settings download/upload. Shared by all three views. |
+| View (plain JS) | `src/app.js` + `index.html` | Draws `vm.state()`, forwards clicks, right-clicks, long-presses, key presses and buttons to ViewModel commands. Bundled to `dist/plain-app.js`. |
+| View (Vue 3) | `src/vue-app.js` + `vue.html` | The same job done with Vue; reuses the unchanged Game and ViewModel. Bundled with Vue to `dist/vue-app.js` (works offline). |
+| View (React 18) | `src/react-app.jsx` + `react.html` | The same job again with React hooks (`useSyncExternalStore` subscribes to the ViewModel). Source is JSX, so it is bundled with React to `dist/react-app.js`. |
+| Sound, files, seeds | `src/sound.js`, `src/settingsfile.js`, `src/rng.js` | Web Audio beeps; file download/upload; seedable random numbers. Shared by all three views. |
 
 Why three views: because the ViewModel owns all state, commands and key handling (`pressKey`), a framework view is only rendering and event wiring; neither the Vue nor the React view needed changes to the model or ViewModel. The ViewModel is testable in plain Node. Both pages share saved settings (same `localStorage`).
 
@@ -62,24 +62,32 @@ classDiagram
 ```
 
 ## 3. Run it
-Needs only a modern browser, and works offline. Open `index.html` (plain JavaScript), `vue.html` (Vue) or `react.html` (React) by double-clicking; each page links to the others. If your browser blocks scripts on `file://` pages, run `python3 -m http.server` in the folder and open `http://localhost:8000/`. Sources: `index.html`, `vue.html`, `react.html`, `style.css`, `src/*.js`, `src/react-app.jsx`.
+Needs only a modern browser, and works offline. Open `index.html` (plain JavaScript), `vue.html` (Vue) or `react.html` (React) by double-clicking; each page links to the others. If your browser blocks scripts on `file://` pages, run `npm run serve` (or `python3 -m http.server`) and open `http://127.0.0.1:4173/`.
 
-**Build step (only needed to change the React view or upgrade Vue/React).** Requires Node 18+ and npm:
+**Build step (only needed after changing `src/` or upgrading a package).** Requires Node 18+ and npm:
 ```bash
 npm install
 npm run build
 ```
-`scripts/build.js` copies Vue's browser build to `vendor/vue.global.prod.js` and uses esbuild to bundle `src/react-app.jsx` with React into `dist/react-app.js`. Both outputs are committed so the pages run without installing anything; `node_modules/` is not committed.
+`scripts/build.js` uses esbuild to bundle each view with the game, ViewModel, sound and file code into one script: `dist/plain-app.js`, `dist/vue-app.js`, `dist/react-app.js`. There are no globals and no CDN. The bundles are committed so the pages run without installing anything; `node_modules/` is not committed. The model and ViewModel files (`src/game.js`, `src/viewmodel.js`, `src/rng.js`) stay plain CommonJS-compatible scripts so the Node tests can `require` them directly.
 
 ## 4. Tests
-Requires Node 18+ (no install needed; the tests use only Node's built-in runner). From the project folder:
+**Logic tests** (48; need only Node 18+, no install, Node's built-in runner):
 ```bash
 node --test
 ```
-37 tests (`game.test.js`, `viewmodel.test.js`): mine placement, numbers, flagging, flood-fill, win, loss, and undo of: first move, a large flood-fill, a flag, empty history, after a loss, after a win; plus redo (re-apply, cleared by a new move, empty stack, after a loss, first move); chord (opens neighbours, one undo step, no-op cases, wrong flag loses); ViewModel (custom clamping, presets, timer, best times, click-vs-chord, keyboard cursor, cell sizing, saved mute/volume, chord command, saved difficulty/custom size, key map rebinding, multiple keys, keyboard dispatch, settings export/import and corrupt-data fallback).
+They cover mine placement, numbers, flagging, flood-fill, win and loss, and undo of: the first move, a large flood-fill, a flag, empty history, after a loss, after a win; redo; chord; the ViewModel (custom clamping, presets, timer, best times, keyboard dispatch, multiple keys, settings and game export/import, corrupt-data fallback, autosave/resume); `Game.serialize/deserialize` including 13 kinds of tampered data; and seeded random numbers.
+
+**Browser tests** (48 = 16 checks x 3 views, Playwright; run the same checks against `index.html`, `vue.html` and `react.html`):
+```bash
+npm install
+npx playwright install chromium      # once; or skip this and use your own Chrome: PW_CHANNEL=chrome npm run test:e2e
+npm run test:e2e
+```
+They start `scripts/serve.js` themselves and drive a real browser: safe first click and flood-fill, flags, undo/redo, loss, win, chord, keyboard play, key rebinding (saved across reload), saved difficulty and custom size, timer, saved mute/volume, settings download/upload (including bad and oversized files), autosave resume, game download/upload, and rejecting a tampered game file. Each page is opened with `?seed=11`; the test builds the same board with the `Game` model (same seed and first click give the same mines), so it knows where mines and numbers are. A deliberate bug in `chord` made the chord test fail in all three views, then the code was restored.
 
 ## 5. Report
-**Game/rules/design:** see sections 1-2. **Implementation:** logic/UI separation; state changes happen only through `reveal`, `toggleFlag`, `undo`, `newGame`; the UI re-renders the whole grid after each action. **Undo design:** full-state snapshots (81 cells, cheap) chosen over storing diffs because they are impossible to get subtly wrong. **Testing:** 37/37 pass under `node --test`; the GUI was not automatically tested, only the logic. **Limitations:** the DOM views (rendering, long-press, sound, file upload/download) has no automated tests (keyboard, chord, saved settings, key rebinding, multiple keys and export/import were checked manually in a browser, in all three views (plain, Vue, React); file download was checked up to the browser's download call, not the saved file; sound was never listened to); custom sizes are capped at 30x40; first-move undo re-randomises mines, history is unbounded (fine at this size).
+**Game/rules/design:** see sections 1-2. **Implementation:** logic/UI separation; state changes happen only through `reveal`, `toggleFlag`, `undo`, `newGame`; the UI re-renders the whole grid after each action. **Undo design:** full-state snapshots (81 cells, cheap) chosen over storing diffs because they are impossible to get subtly wrong. **Testing:** 48/48 logic tests and 48/48 browser tests pass (Chrome) under `node --test`; the GUI was not automatically tested, only the logic. **Limitations:** the sound and the touch long-press (desktop Chrome only; sound was never listened to); browser tests ran in Chrome only has no automated tests (keyboard, chord, saved settings, key rebinding, multiple keys and export/import were checked manually in a browser, and are now covered by the browser tests in all three views; sound was never listened to); custom sizes are capped at 30x40; first-move undo re-randomises mines, history is unbounded (fine at this size).
 
 ## 6. Demo script
 1. Open `index.html`. Note Mines: 10, Undo disabled.
@@ -105,6 +113,6 @@ git add README.md && git commit -m "Add report and demo plan"
 (Because the files already exist, use `git add -p` to split `game.js` honestly across the logic/rules/undo commits, or merge those into one commit.)
 
 ## Optional enhancements still not implemented
-- Automated browser tests (e.g. Playwright) for the three views.
-- Bundle the plain JavaScript and Vue views with the same esbuild step (one bundle, no globals).
-- Save/load a game in progress, not just settings.
+- Run the browser tests in Firefox and WebKit, and on a phone-sized screen with touch.
+- A shared code split instead of three bundles that each contain the game.
+- Multiple saved-game slots and a best-times table.

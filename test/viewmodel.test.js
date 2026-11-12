@@ -203,3 +203,87 @@ test('a saved level like "constructor" falls back to beginner', () => {
   const st = fakeStorage(); st.setItem('ms-level', 'constructor');
   assert.strictEqual(new ViewModel(st).level, 'beginner');
 });
+
+// ---- save / load a game in progress ----
+const { mulberry32, rngFromSearch } = require('../src/rng.js');
+const inProgress = st => { const vm = new ViewModel(st, { rng: mulberry32(7) }); vm.click(4, 4); vm.flag(0, 0); vm.tick(); vm.tick(); return vm; };
+
+test('a game in progress is autosaved and resumed, including time and undo history', () => {
+  const st = fakeStorage(), a = inProgress(st);
+  const open = a.game.cells.flat().filter(c => c.revealed).length;
+  const b = new ViewModel(st);                                  // "reload the page"
+  assert.strictEqual(b.game.cells.flat().filter(c => c.revealed).length, open);
+  assert.strictEqual(b.game.cells[0][0].flagged, true);
+  assert.strictEqual(b.elapsed, 0);                             // ticks are saved with the next change (or save())
+  a.save(); assert.strictEqual(new ViewModel(st).elapsed, 2);   // save() (called on pagehide) keeps the time
+  b.undo(); b.undo();
+  assert.strictEqual(b.game.canUndo(), false);                  // history came back too
+});
+
+test('finished, untouched and corrupt autosaves start a fresh game', () => {
+  const st = fakeStorage(); new ViewModel(st);                  // untouched game was saved
+  assert.strictEqual(new ViewModel(st).game.canUndo(), false);
+  const lost = new ViewModel(fakeStorage(), { rng: mulberry32(1) }); lost.click(4, 4);
+  const mine = lost.game.cells.flat().findIndex(c => c.mine);
+  lost.click(Math.floor(mine / 9), mine % 9);
+  assert.strictEqual(lost.game.status, 'lost');
+  assert.strictEqual(new ViewModel(lost.storage).game.status, 'playing');
+  const bad = fakeStorage(); bad.setItem('ms-game', '{"version":1,"type":"game"'); 
+  assert.strictEqual(new ViewModel(bad).game.canUndo(), false);
+  bad.setItem('ms-game', JSON.stringify({ game: { status: 'playing', history: [1] } }));
+  assert.strictEqual(new ViewModel(bad).game.canUndo(), false);
+});
+
+test('exportGame then importFile restores the game, difficulty and time in another profile', () => {
+  const a = inProgress(fakeStorage()); a.start('custom', [6, 7, 5]); a.click(2, 2); a.elapsed = 41;
+  const b = new ViewModel(fakeStorage());
+  assert.deepStrictEqual(b.importFile(a.exportGame()), { ok: true, kind: 'game' });
+  assert.deepStrictEqual([b.level, b.custom, b.elapsed, b.game.rows, b.game.cols], ['custom', [6, 7, 5], 41, 6, 7]);
+  assert.strictEqual(JSON.stringify(b.game.serialize()), JSON.stringify(a.game.serialize()));
+  b.undo(); assert.strictEqual(b.game.canUndo(), false);
+});
+
+test('importFile also accepts settings files, old (untyped) and new', () => {
+  const vm = new ViewModel(fakeStorage());
+  assert.deepStrictEqual(vm.importFile('{"version":1,"volume":0.3}'), { ok: true, kind: 'settings' });
+  assert.deepStrictEqual(vm.importFile(vm.exportSettings()), { ok: true, kind: 'settings' });
+  assert.strictEqual(vm.importFile('{"version":1,"type":"banana"}').ok, false);
+  assert.strictEqual(vm.importFile('nope').ok, false);
+});
+
+test('invalid game files are rejected and change nothing', () => {
+  const vm = inProgress(fakeStorage()), before = vm.exportGame();
+  const good = JSON.parse(before);
+  const bad = [
+    d => { d.game.cells = 'x'; }, d => { d.level = 'constructor'; }, d => { d.elapsed = -1; }, d => { d.elapsed = 1.5; },
+    d => { d.custom = [1, 2]; }, d => { d.version = 2; },
+    d => { d.level = 'expert'; },                                  // board is 9x9 but claims expert
+    d => { d.game.history = 'no'; },
+  ];
+  for (const f of bad) {
+    const d = JSON.parse(before); f(d);
+    assert.strictEqual(vm.importFile(JSON.stringify(d)).ok, false);
+  }
+  assert.strictEqual(vm.exportGame(), before);
+  assert.ok(good.game);
+});
+
+test('a loaded won game does not record a best time', () => {
+  const a = new ViewModel(fakeStorage()); win(a, 9);
+  const data = JSON.parse(a.exportGame()); data.elapsed = 1;       // a crafted file claiming a 1 second win
+  const st = fakeStorage(), b = new ViewModel(st);
+  assert.strictEqual(b.importFile(JSON.stringify(data)).ok, true);
+  assert.strictEqual(b.state().status, 'won');
+  assert.strictEqual(b.best(), null);
+});
+
+test('seeded rng gives reproducible boards', () => {
+  const seq = r => [r(), r(), r()];
+  assert.deepStrictEqual(seq(mulberry32(5)), seq(mulberry32(5)));
+  assert.notDeepStrictEqual(seq(mulberry32(5)), seq(mulberry32(6)));
+  assert.strictEqual(rngFromSearch('?x=1'), Math.random);
+  assert.strictEqual(rngFromSearch('?seed=abc'), Math.random);
+  const mines = seed => { const vm = new ViewModel(fakeStorage(), { rng: rngFromSearch('?seed=' + seed) }); vm.click(4, 4); return vm.game.cells.flat().map(c => +c.mine).join(''); };
+  assert.strictEqual(mines(3), mines(3));
+  assert.notStrictEqual(mines(3), mines(4));
+});

@@ -46,8 +46,9 @@
 
   class ViewModel {
     // storage: {getItem, setItem}. hooks: onChange(state) after any change, onTick(seconds) every timer tick.
-    constructor(storage, { onChange = () => {}, onTick = () => {} } = {}) {
-      this.storage = storage; this.onChange = onChange; this.onTick = onTick;
+    // rng: random source for mine placement (Math.random, or a seeded one for reproducible boards).
+    constructor(storage, { onChange = () => {}, onTick = () => {}, rng = Math.random } = {}) {
+      this.storage = storage; this.onChange = onChange; this.onTick = onTick; this.rng = rng;
       this.custom = [9, 9, 10];
       this.gameId = 0;          // increments on every new game (views use it to tell "new game" from "undo")
       this.rebinding = null;    // action waiting for its next key press, or null
@@ -61,14 +62,20 @@
       this.muted = storage.getItem('ms-muted') === '1';
       this.volume = v === null || isNaN(Number(v)) ? 0.5 : Math.min(1, Math.max(0, Number(v)));
       const saved = storage.getItem('ms-level');
-      this.start(isLevel(saved) ? saved : 'beginner');
+      // Resume a game in progress (autosaved after every change). Finished or untouched games start fresh instead.
+      let resumed = false;
+      try {
+        const d = JSON.parse(storage.getItem('ms-game'));
+        resumed = d.game.status === 'playing' && d.game.history.length > 0 && this._loadGameData(d);
+      } catch (e) {}
+      if (!resumed) this.start(isLevel(saved) ? saved : 'beginner');
     }
 
     start(level = this.level, custom = this.custom) {
       this.level = level;
       if (level === 'custom') this.custom = custom = clampCustom(custom);
       const [r, c, m] = level === 'custom' ? custom : LEVELS[level];
-      this.game = new G(r, c, m);
+      this.game = new G(r, c, m, this.rng);
       this.gameId++;
       this.storage.setItem('ms-level', level);
       this.storage.setItem('ms-custom', JSON.stringify(this.custom));
@@ -146,16 +153,45 @@
     setMuted(m) { this.muted = !!m; this.storage.setItem('ms-muted', this.muted ? 1 : 0); this.onChange(this.state()); }
     setVolume(v) { this.volume = Math.min(1, Math.max(0, Number(v) || 0)); this.storage.setItem('ms-volume', this.volume); this.onChange(this.state()); }
 
+    // ---- Save / load a game in progress ----
+    // The whole game (board, undo and redo history) plus difficulty and elapsed time, as a plain object.
+    _gameData() { return { version: 1, type: 'game', level: this.level, custom: this.custom, elapsed: this.elapsed, game: this.game.serialize() }; }
+    save() { this.storage.setItem('ms-game', JSON.stringify(this._gameData())); } // views also call this when the page is hidden
+    exportGame() { return JSON.stringify(this._gameData()); }
+    // Validate then apply (all-or-nothing). Returns false, changing nothing, if the data is not a consistent saved game.
+    _loadGameData(d) {
+      if (!d || typeof d !== 'object' || d.version !== 1 || d.type !== 'game' || !isLevel(d.level)) return false;
+      if (!Array.isArray(d.custom) || d.custom.length !== 3 || !d.custom.every(Number.isFinite)) return false;
+      if (!Number.isInteger(d.elapsed) || d.elapsed < 0 || d.elapsed > 1e7) return false;
+      const custom = clampCustom(d.custom), g = G.deserialize(d.game, this.rng);
+      if (!g) return false;
+      const [r, c, m] = d.level === 'custom' ? custom : LEVELS[d.level]; // the board must match the difficulty it claims
+      if (g.rows !== r || g.cols !== c || g.mineCount !== m) return false;
+      this.level = d.level; this.custom = custom; this.game = g; this.elapsed = d.elapsed;
+      this.gameId++; this.cursor = { r: 0, c: 0 }; this.rebinding = null; this.keyMessage = '';
+      this.storage.setItem('ms-level', this.level); this.storage.setItem('ms-custom', JSON.stringify(this.custom));
+      this._changed(false); // false: a loaded win must not count as a new best time
+      return true;
+    }
+    // One entry point for uploaded files: a saved game or a settings export.
+    importFile(text) {
+      let d;
+      try { d = JSON.parse(text); } catch (e) { return { ok: false, error: 'Not valid JSON' }; }
+      if (d && d.type === 'game') return this._loadGameData(d) ? { ok: true, kind: 'game' } : { ok: false, error: 'Not a valid saved game' };
+      const r = this.importSettings(text);
+      return r.ok ? { ok: true, kind: 'settings' } : r;
+    }
+
     // ---- Export / import of settings (difficulty, custom size, keys, mute, volume; not scores or the game in progress) ----
     exportSettings() {
-      return JSON.stringify({ version: 1, level: this.level, custom: this.custom, keys: this.keys, muted: this.muted, volume: this.volume }, null, 2);
+      return JSON.stringify({ version: 1, type: 'settings', level: this.level, custom: this.custom, keys: this.keys, muted: this.muted, volume: this.volume }, null, 2);
     }
     // All-or-nothing: if any field is invalid nothing changes. Returns {ok, error?}. Starts a new game on success.
     importSettings(text) {
       const fail = error => ({ ok: false, error });
       let d;
       try { d = JSON.parse(text); } catch (e) { return fail('Not valid JSON'); }
-      if (!d || typeof d !== 'object' || d.version !== 1) return fail('Not a Minesweeper settings export (expected version 1)');
+      if (!d || typeof d !== 'object' || d.version !== 1 || (d.type !== undefined && d.type !== 'settings')) return fail('Not a Minesweeper settings export (expected version 1)');
       if ('level' in d && !isLevel(d.level)) return fail('Unknown difficulty');
       let custom = this.custom;
       if ('custom' in d) {
@@ -183,12 +219,13 @@
 
     best() { return Number(this.storage.getItem('ms-best-' + this.level)) || null; }
 
-    _changed() {
+    _changed(recordBest = true) {
       if (!this.game.canUndo()) this.elapsed = 0; // nothing played: new game or first move undone
       const best = this.best();
       // No high scores for custom boards (not comparable).
-      if (this.game.status === 'won' && this.level !== 'custom' && this.elapsed > 0 && (!best || this.elapsed < best))
+      if (recordBest && this.game.status === 'won' && this.level !== 'custom' && this.elapsed > 0 && (!best || this.elapsed < best))
         this.storage.setItem('ms-best-' + this.level, this.elapsed);
+      this.save();
       this.onChange(this.state());
     }
 

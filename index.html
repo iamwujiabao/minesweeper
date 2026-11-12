@@ -19,15 +19,12 @@
   </div>
   <div id="status"></div><p><small>Touch: long-press to flag. Keyboard keys are listed (and rebindable) below.</small></p>
   <details id="keys"><summary>Keys</summary><div id="keylist"></div><button id="resetkeys">Reset keys</button> <span id="keymsg"></span></details>
-  <details id="settings"><summary>Settings file</summary>
-    <button id="export">Download settings</button>
-    <label>Upload settings: <input type="file" id="settingsFile" accept=".json,application/json"></label>
+  <details id="settings"><summary>Files: settings and saved game</summary>
+    <p><small>Your game in progress is also saved automatically and resumes when you reopen the page.</small></p>
+    <button id="export">Download settings</button> <button id="exportGame">Download game</button>
+    <label>Upload a settings or game file: <input type="file" id="settingsFile" accept=".json,application/json"></label>
     <span id="settingsMsg"></span>
   </details><br>
   <div id="board"></div>
-  <script src="src/game.js"></script>
-  <script src="src/viewmodel.js"></script>
-  <script src="src/sound.js"></script>
-  <script src="src/settingsfile.js"></script>
-  <script src="src/app.js"></script>
+  <script src="dist/plain-app.js"></script>
 </body></html>

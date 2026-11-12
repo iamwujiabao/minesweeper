@@ -1,6 +1,11 @@
 // View (MVVM), Vue 3: the same ViewModel as app.js, rendered by Vue. The ViewModel pushes a fresh
 // state() into one shallowRef; Vue re-renders from it. No game rules here either.
-const { createApp, shallowRef, ref, computed, onMounted } = Vue;
+// Bundled by esbuild (npm run build) into dist/vue-app.js; the page's own HTML is Vue's template.
+import { createApp, shallowRef, ref, computed, onMounted } from 'vue';
+import { ViewModel, cellSize, ACTION_LABELS } from './viewmodel.js';
+import { rngFromSearch } from './rng.js';
+import { Sound } from './sound.js';
+import { SettingsFile } from './settingsfile.js';
 
 const storage = {
   getItem: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -19,6 +24,7 @@ createApp({
     const vm = new ViewModel(storage, {
       onChange: st => { Sound.onState(st); custom.value = [...st.custom]; time.value = st.time; s.value = st; },
       onTick: t => { time.value = t; },
+      rng: rngFromSearch(location.search),
     });
 
     const px = computed(() => cellSize(s.value.rows, s.value.cols, win.value.w - 32, win.value.h - 200));
@@ -49,18 +55,20 @@ createApp({
     const pressEnd = () => clearTimeout(pressTimer);
 
     const downloadSettings = () => { SettingsFile.download(vm.exportSettings()); settingsMsg.value = 'Downloaded minesweeper-settings.json'; };
-    const uploadSettings = async e => {
+    const downloadGame = () => { SettingsFile.download(vm.exportGame(), 'minesweeper-game.json'); settingsMsg.value = 'Downloaded minesweeper-game.json'; };
+    const uploadFile = async e => {
       const file = e.target.files[0];
       e.target.value = ''; // so choosing the same file again still fires change
       if (!file) return;
       try {
-        const r = vm.importSettings(await SettingsFile.read(file));
+        const r = vm.importFile(await SettingsFile.read(file));
         settingsMsg.value = r.ok ? 'Imported ' + file.name : 'Not imported: ' + r.error;
       } catch (err) { settingsMsg.value = 'Not imported: ' + err.message; }
     };
 
     onMounted(() => {
       setInterval(() => vm.tick(), 1000);
+      window.addEventListener('pagehide', () => vm.save()); // keep the exact elapsed time for the autosaved game
       window.addEventListener('resize', () => { win.value = { w: window.innerWidth, h: window.innerHeight }; });
       document.addEventListener('keydown', e => {
         if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -70,6 +78,6 @@ createApp({
     });
 
     return { vm, s, time, custom, px, items, statusText, labels: ACTION_LABELS, keyName: k => (k === ' ' ? 'Space' : k),
-             settingsMsg, newGame, cellClick, cellFlag, pressStart, pressEnd, downloadSettings, uploadSettings };
+             settingsMsg, newGame, cellClick, cellFlag, pressStart, pressEnd, downloadSettings, downloadGame, uploadFile };
   },
 }).mount('#app');

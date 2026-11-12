@@ -190,3 +190,57 @@ test('chord with a wrong flag hits the mine and loses; undo recovers', () => {
   g.undo();
   assert.strictEqual(g.status, 'playing');
 });
+
+// ---- save / load ----
+const played = () => { // a game with flags, a flood-fill, an undo and a redo pending
+  const g = wall();
+  g.toggleFlag(4, 4); g.reveal(0, 0); g.toggleFlag(0, 2); g.undo();
+  return g;
+};
+const roundTrip = g => Game.deserialize(JSON.parse(JSON.stringify(g.serialize())));
+
+test('serialize/deserialize restores the exact state, history and redo', () => {
+  const g = played(), h = roundTrip(g);
+  assert.deepStrictEqual(h.cells, g.cells); // deepStrictEqual ignores key order
+  assert.deepStrictEqual(h.serialize(), g.serialize());
+  assert.strictEqual(h.history.length, g.history.length);
+  assert.strictEqual(h.canRedo(), true);
+  h.redo(); g.redo();
+  assert.deepStrictEqual(h.cells, g.cells); // redo works after loading
+  h.undo(); h.undo(); h.undo();
+  assert.strictEqual(h.canUndo(), false);       // full undo history was kept
+});
+
+test('a loaded game before the first move still places mines safely on the first click', () => {
+  const h = roundTrip(new Game(9, 9, 10));
+  h.reveal(4, 4);
+  assert.ok(!h.cells[4][4].mine);
+  assert.strictEqual(h.cells.flat().filter(c => c.mine).length, 10);
+});
+
+test('a lost game round-trips with its exploded cell', () => {
+  const g = wall(); g.reveal(2, 2);
+  const h = roundTrip(g);
+  assert.strictEqual(h.status, 'lost');
+  assert.deepStrictEqual(h.exploded, { r: 2, c: 2 });
+});
+
+test('deserialize rejects inconsistent or malformed data', () => {
+  const good = () => JSON.parse(JSON.stringify(played().serialize()));
+  const mutate = f => { const d = good(); f(d); return Game.deserialize(d); };
+  assert.ok(Game.deserialize(good()));
+  assert.strictEqual(Game.deserialize(null), null);
+  assert.strictEqual(Game.deserialize('x'), null);
+  assert.strictEqual(mutate(d => { d.cells = d.cells.slice(1); }), null);               // wrong length
+  assert.strictEqual(mutate(d => { d.cells = '~' + d.cells.slice(1); }), null);          // invalid character
+  assert.strictEqual(mutate(d => { d.mines = 4; }), null);                               // mine count mismatch
+  assert.strictEqual(mutate(d => { d.rows = 99; }), null);
+  assert.strictEqual(mutate(d => { d.status = 'banana'; }), null);
+  assert.strictEqual(mutate(d => { d.status = 'won'; }), null);                          // not actually won
+  assert.strictEqual(mutate(d => { d.status = 'lost'; d.exploded = null; }), null);      // lost without a mine hit
+  assert.strictEqual(mutate(d => { d.exploded = { r: 50, c: 0 }; }), null);
+  assert.strictEqual(mutate(d => { d.history[0].cells = d.history[0].cells.slice(1); }), null);
+  assert.strictEqual(mutate(d => { delete d.history; }), null);
+  // a number that disagrees with its neighbours
+  assert.strictEqual(mutate(d => { const ch = d.cells.charCodeAt(0) - 48; d.cells = String.fromCharCode(48 + (ch ^ 8)) + d.cells.slice(1); }), null);
+});

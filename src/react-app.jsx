@@ -1,7 +1,11 @@
 // View (MVVM), React 18: the same ViewModel as app.js and vue-app.js, rendered by React.
-// Game, ViewModel, Sound, SettingsFile, cellSize and ACTION_LABELS are globals from the classic <script> tags in react.html.
+// Bundled by esbuild (npm run build) into dist/react-app.js: no globals, everything is imported.
 import { useState, useEffect, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
+import { ViewModel, cellSize, ACTION_LABELS } from './viewmodel.js';
+import { rngFromSearch } from './rng.js';
+import { Sound } from './sound.js';
+import { SettingsFile } from './settingsfile.js';
 
 const storage = {
   getItem: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -18,7 +22,9 @@ const subState = subscribe(stateSubs), subTime = subscribe(timeSubs);
 const vm = new ViewModel(storage, {
   onChange: st => { Sound.onState(st); latest = st; time = st.time; stateSubs.forEach(f => f()); timeSubs.forEach(f => f()); },
   onTick: t => { time = t; timeSubs.forEach(f => f()); },
+  rng: rngFromSearch(location.search),
 });
+window.addEventListener('pagehide', () => vm.save()); // keep the exact elapsed time for the autosaved game
 
 const keyName = k => (k === ' ' ? 'Space' : k);
 const STATUS = { playing: 'Playing - click to reveal, click a number to chord, right-click to flag (or use the keyboard)',
@@ -26,7 +32,7 @@ const STATUS = { playing: 'Playing - click to reveal, click a number to chord, r
 let lastLongPress = 0, pressTimer;
 
 function Clock() {
-  return <b>{useSyncExternalStore(subTime, () => time)}</b>;
+  return <b id="time">{useSyncExternalStore(subTime, () => time)}</b>;
 }
 
 function Cell({ cell, r, c, s }) {
@@ -65,7 +71,7 @@ function KeysPanel({ s }) {
           <button onClick={() => vm.startRebind(a)}>{s.rebinding === a ? 'press a key...' : '+ add key'}</button>
         </div>
       ))}
-      <button onClick={() => vm.resetKeys()}>Reset keys</button> <span>{s.keyMessage}</span>
+      <button id="resetkeys" onClick={() => vm.resetKeys()}>Reset keys</button> <span id="keymsg">{s.keyMessage}</span>
     </details>
   );
 }
@@ -77,16 +83,18 @@ function SettingsPanel() {
     e.target.value = ''; // so choosing the same file again still fires change
     if (!file) return;
     try {
-      const r = vm.importSettings(await SettingsFile.read(file));
+      const r = vm.importFile(await SettingsFile.read(file));
       setMsg(r.ok ? 'Imported ' + file.name : 'Not imported: ' + r.error);
     } catch (err) { setMsg('Not imported: ' + err.message); }
   };
   return (
     <details>
-      <summary>Settings file</summary>
-      <button onClick={() => { SettingsFile.download(vm.exportSettings()); setMsg('Downloaded minesweeper-settings.json'); }}>Download settings</button>
-      <label> Upload settings: <input type="file" accept=".json,application/json" onChange={upload} /></label>
-      <span> {msg}</span>
+      <summary>Files: settings and saved game</summary>
+      <p><small>Your game in progress is also saved automatically and resumes when you reopen the page.</small></p>
+      <button id="export" onClick={() => { SettingsFile.download(vm.exportSettings()); setMsg('Downloaded minesweeper-settings.json'); }}>Download settings</button>{' '}
+      <button id="exportGame" onClick={() => { SettingsFile.download(vm.exportGame(), 'minesweeper-game.json'); setMsg('Downloaded minesweeper-game.json'); }}>Download game</button>
+      <label> Upload a settings or game file: <input id="settingsFile" type="file" accept=".json,application/json" onChange={upload} /></label>
+      <span id="settingsMsg"> {msg}</span>
     </details>
   );
 }
@@ -116,7 +124,7 @@ function App() {
       <h1>Minesweeper <small>(React view)</small></h1>
       <p><small><a href="index.html">Plain JavaScript version</a>, <a href="vue.html">Vue version</a></small></p>
       <div id="bar">
-        <select value={s.level} onChange={e => vm.start(e.target.value, custom)}>
+        <select id="level" value={s.level} onChange={e => vm.start(e.target.value, custom)}>
           <option value="beginner">Beginner 9x9</option><option value="intermediate">Intermediate 16x16</option>
           <option value="expert">Expert 16x30</option><option value="custom">Custom</option>
         </select>
@@ -124,21 +132,21 @@ function App() {
           <span id="custom">
             {['rows 5-30', 'columns 5-40', 'mines'].map((title, i) => (
               <span key={i}>{i === 1 ? ' x ' : i === 2 ? ' mines ' : ''}
-                <input type="number" title={title} value={custom[i]}
+                <input id={['rows', 'cols', 'minesIn'][i]} type="number" title={title} value={custom[i]}
                   onChange={e => setCustom(cu => cu.map((v, j) => (j === i ? e.target.value : v)))} /></span>
             ))}
           </span>
         )}
-        <span>Mines: <b>{s.minesLeft}</b></span>
+        <span>Mines: <b id="mines">{s.minesLeft}</b></span>
         <span>Time: <Clock /></span>
-        <span>Best: <b>{s.best ? s.best + 's' : '-'}</b></span>
-        <button onClick={() => vm.start(s.level, custom)}>New Game</button>
-        <button disabled={!s.canUndo} onClick={() => vm.undo()}>Undo</button>
-        <button disabled={!s.canRedo} onClick={() => vm.redo()}>Redo</button>
-        <label><input type="checkbox" checked={!s.muted} onChange={e => vm.setMuted(!e.target.checked)} /> Sound</label>
-        <input type="range" min="0" max="1" step="0.1" title="volume" value={s.volume} onChange={e => vm.setVolume(e.target.value)} />
+        <span>Best: <b id="best">{s.best ? s.best + 's' : '-'}</b></span>
+        <button id="new" onClick={() => vm.start(s.level, custom)}>New Game</button>
+        <button id="undo" disabled={!s.canUndo} onClick={() => vm.undo()}>Undo</button>
+        <button id="redo" disabled={!s.canRedo} onClick={() => vm.redo()}>Redo</button>
+        <label><input id="sound" type="checkbox" checked={!s.muted} onChange={e => vm.setMuted(!e.target.checked)} /> Sound</label>
+        <input id="volume" type="range" min="0" max="1" step="0.1" title="volume" value={s.volume} onChange={e => vm.setVolume(e.target.value)} />
       </div>
-      <div>{STATUS[s.status]}</div>
+      <div id="status">{STATUS[s.status]}</div>
       <p><small>Touch: long-press to flag. Keyboard keys are listed (and rebindable) below.</small></p>
       <KeysPanel s={s} />
       <SettingsPanel />

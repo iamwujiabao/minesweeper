@@ -1,4 +1,10 @@
 // View (MVVM), plain JavaScript: draws vm.state() and forwards DOM events to ViewModel commands. No game rules here.
+// Bundled with esbuild (npm run build) into dist/plain-app.js: no globals, everything is imported.
+import { ViewModel, cellSize, ACTION_LABELS } from './viewmodel.js';
+import { rngFromSearch } from './rng.js';
+import { Sound } from './sound.js';
+import { SettingsFile } from './settingsfile.js';
+
 const $ = id => document.getElementById(id);
 const boardEl = $('board'), levelEl = $('level'), customEl = $('custom');
 let lastLongPress = 0;
@@ -10,7 +16,7 @@ const storage = {
   setItem: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} },
 };
 
-const vm = new ViewModel(storage, { onChange: render, onTick: t => { $('time').textContent = t; } });
+const vm = new ViewModel(storage, { onChange: render, onTick: t => { $('time').textContent = t; }, rng: rngFromSearch(location.search) });
 
 function newGame() { vm.start(levelEl.value, [$('rows').value, $('cols').value, $('minesIn').value]); }
 
@@ -86,14 +92,15 @@ function renderKeys(s) {
 }
 $('resetkeys').onclick = () => vm.resetKeys();
 
-// Settings file: download the JSON, or upload one (validated all-or-nothing by the ViewModel).
+// Files: download settings or the game in progress, or upload either (validated all-or-nothing by the ViewModel).
 $('export').onclick = () => { SettingsFile.download(vm.exportSettings()); $('settingsMsg').textContent = 'Downloaded minesweeper-settings.json'; };
+$('exportGame').onclick = () => { SettingsFile.download(vm.exportGame(), 'minesweeper-game.json'); $('settingsMsg').textContent = 'Downloaded minesweeper-game.json'; };
 $('settingsFile').onchange = async e => {
   const file = e.target.files[0];
   e.target.value = ''; // so choosing the same file again still fires change
   if (!file) return;
   try {
-    const r = vm.importSettings(await SettingsFile.read(file));
+    const r = vm.importFile(await SettingsFile.read(file));
     $('settingsMsg').textContent = r.ok ? 'Imported ' + file.name : 'Not imported: ' + r.error;
   } catch (err) { $('settingsMsg').textContent = 'Not imported: ' + err.message; }
 };
@@ -106,6 +113,7 @@ document.onkeydown = e => {
 };
 
 setInterval(() => vm.tick(), 1000);
+window.addEventListener('pagehide', () => vm.save()); // keep the exact elapsed time for the autosaved game
 $('new').onclick = newGame;
 levelEl.onchange = newGame;
 $('sound').onchange = e => vm.setMuted(!e.target.checked);

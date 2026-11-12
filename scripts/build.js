@@ -1,19 +1,21 @@
-// Build step: put Vue and React next to the game so the pages work offline (no CDN).
-//  - vendor/vue.global.prod.js : Vue's ready-made browser build, copied from node_modules
-//  - dist/react-app.js         : src/react-app.jsx + React + ReactDOM bundled into one script by esbuild
-// The outputs are committed, so you only need `npm run build` after changing react-app.jsx or upgrading a package.
-const fs = require('fs');
+// Build step: bundle each view with esbuild into one script, no globals and no CDN (works offline).
+//   src/app.js        -> dist/plain-app.js   (plain JavaScript view)
+//   src/vue-app.js    -> dist/vue-app.js     (Vue 3 view; esbuild's alias picks Vue's build that includes the template compiler)
+//   src/react-app.jsx -> dist/react-app.js   (React 18 view)
+// Game, ViewModel, sound and settings code are bundled into each. The outputs are committed, so the pages run
+// without installing anything; run `npm run build` after changing src/ or upgrading a package.
 const path = require('path');
 const esbuild = require('esbuild');
 const root = path.join(__dirname, '..');
 
-fs.mkdirSync(path.join(root, 'vendor'), { recursive: true });
-fs.copyFileSync(require.resolve('vue/dist/vue.global.prod.js'), path.join(root, 'vendor', 'vue.global.prod.js'));
+const common = { bundle: true, minify: true, format: 'iife', jsx: 'automatic', logLevel: 'info',
+                 define: { 'process.env.NODE_ENV': '"production"' } }; // React/Vue check this to drop dev-only code
+const src = f => path.join(root, 'src', f), out = f => path.join(root, 'dist', f);
 
+esbuild.buildSync({ ...common, entryPoints: [src('app.js')], outfile: out('plain-app.js') });
+esbuild.buildSync({ ...common, entryPoints: [src('react-app.jsx')], outfile: out('react-app.js') });
 esbuild.buildSync({
-  entryPoints: [path.join(root, 'src/react-app.jsx')],
-  outfile: path.join(root, 'dist/react-app.js'),
-  bundle: true, minify: true, format: 'iife', jsx: 'automatic',
-  define: { 'process.env.NODE_ENV': '"production"' }, // React checks this to drop dev-only code
-  logLevel: 'info',
+  ...common, entryPoints: [src('vue-app.js')], outfile: out('vue-app.js'),
+  alias: { vue: 'vue/dist/vue.esm-bundler.js' },
+  define: { ...common.define, __VUE_OPTIONS_API__: 'true', __VUE_PROD_DEVTOOLS__: 'false', __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false' },
 });

@@ -150,6 +150,62 @@
 
     _restore(s) { this.cells = s.cells; this.status = s.status; this.minesPlaced = s.minesPlaced; this.exploded = s.exploded; }
 
+    // ---- Save / load ----
+    // Compact JSON form: a board is one string, one character per cell (bits: 1 mine, 2 revealed, 4 flagged, adjacent << 3),
+    // so even a long undo history stays small.
+    serialize() {
+      const enc = cells => cells.flat().map(c =>
+        String.fromCharCode(48 + ((c.mine ? 1 : 0) | (c.revealed ? 2 : 0) | (c.flagged ? 4 : 0) | (c.adjacent << 3)))).join('');
+      const snap = s => ({ cells: enc(s.cells), status: s.status, minesPlaced: s.minesPlaced, exploded: s.exploded });
+      return { rows: this.rows, cols: this.cols, mines: this.mineCount, ...snap(this),
+               history: this.history.map(snap), redo: this.redoStack.map(snap) };
+    }
+
+    // Rebuild a Game from serialize() output. The input may come from an uploaded file, so everything is checked
+    // (sizes, characters, mine count, every number against its neighbours, status); returns null if anything is off.
+    static deserialize(d, rng = Math.random) {
+      const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+      if (!d || typeof d !== 'object' || !int(d.rows, 1, 50) || !int(d.cols, 1, 50) || !int(d.mines, 1, d.rows * d.cols - 1)) return null;
+      if (!Array.isArray(d.history) || !Array.isArray(d.redo) || d.history.length > 5000 || d.redo.length > 5000) return null;
+      const g = new Game(d.rows, d.cols, d.mines, rng);
+      const decode = p => {
+        if (!p || typeof p !== 'object' || typeof p.cells !== 'string' || p.cells.length !== d.rows * d.cols) return null;
+        if (!['playing', 'won', 'lost'].includes(p.status) || typeof p.minesPlaced !== 'boolean') return null;
+        let exploded = null;
+        if (p.exploded !== null) {
+          if (!p.exploded || !int(p.exploded.r, 0, d.rows - 1) || !int(p.exploded.c, 0, d.cols - 1)) return null;
+          exploded = { r: p.exploded.r, c: p.exploded.c };
+        }
+        const cells = [];
+        let mines = 0, revealedSafe = 0, anyRevealed = false;
+        for (let r = 0; r < d.rows; r++) {
+          const row = [];
+          for (let c = 0; c < d.cols; c++) {
+            const code = p.cells.charCodeAt(r * d.cols + c) - 48;
+            if (!(code >= 0 && code < 72)) return null; // 71 = mine+revealed+flagged with adjacent 8
+            const cell = { mine: !!(code & 1), revealed: !!(code & 2), flagged: !!(code & 4), adjacent: code >> 3 };
+            if (cell.mine) mines++;
+            if (cell.revealed) { anyRevealed = true; if (!cell.mine) revealedSafe++; }
+            row.push(cell);
+          }
+          cells.push(row);
+        }
+        for (let r = 0; r < d.rows; r++)
+          for (let c = 0; c < d.cols; c++) {
+            const expected = g.neighbors(r, c).filter(([a, b]) => cells[a][b].mine).length;
+            if (cells[r][c].adjacent !== (p.minesPlaced ? expected : 0)) return null;
+          }
+        if (p.minesPlaced ? mines !== d.mines : (mines !== 0 || anyRevealed)) return null;
+        if (p.status === 'lost' && !exploded) return null;
+        if (p.status === 'won' && revealedSafe !== d.rows * d.cols - d.mines) return null;
+        return { cells, status: p.status, minesPlaced: p.minesPlaced, exploded };
+      };
+      const cur = decode(d), history = d.history.map(decode), redo = d.redo.map(decode);
+      if (!cur || history.includes(null) || redo.includes(null)) return null;
+      Object.assign(g, cur, { history, redoStack: redo });
+      return g;
+    }
+
     flagCount() { return this.cells.flat().filter(c => c.flagged).length; }
     minesLeft() { return this.mineCount - this.flagCount(); } // can go negative if over-flagged
     _allSafeRevealed() { return this.cells.flat().filter(c => c.revealed).length === this.rows * this.cols - this.mineCount; }

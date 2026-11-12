@@ -2,30 +2,30 @@
 <html lang="en"><head><meta charset="utf-8"><title>Minesweeper (Vue)</title>
 <link rel="stylesheet" href="style.css"></head>
 <body>
-<!-- Same game and ViewModel as index.html; only the view is Vue 3 (local copy in vendor/, made by `npm run build`; works offline). -->
+<!-- Same game and ViewModel as index.html; only the view is Vue 3, bundled into dist/vue-app.js by `npm run build` (works offline). -->
 <div id="app" v-cloak>
   <h1>Minesweeper <small>(Vue view)</small></h1>
   <p><small><a href="index.html">Plain JavaScript version</a>, <a href="react.html">React version</a></small></p>
   <div id="bar">
-    <select :value="s.level" @change="newGame($event.target.value)">
+    <select id="level" :value="s.level" @change="newGame($event.target.value)">
       <option value="beginner">Beginner 9x9</option><option value="intermediate">Intermediate 16x16</option>
       <option value="expert">Expert 16x30</option><option value="custom">Custom</option>
     </select>
     <span v-if="s.level === 'custom'" id="custom">
-      <input type="number" min="5" max="30" v-model.number="custom[0]" title="rows 5-30"> x
-      <input type="number" min="5" max="40" v-model.number="custom[1]" title="columns 5-40"> mines
-      <input type="number" min="1" v-model.number="custom[2]" title="mines">
+      <input id="rows" type="number" min="5" max="30" v-model.number="custom[0]" title="rows 5-30"> x
+      <input id="cols" type="number" min="5" max="40" v-model.number="custom[1]" title="columns 5-40"> mines
+      <input id="minesIn" type="number" min="1" v-model.number="custom[2]" title="mines">
     </span>
-    <span>Mines: <b>{{ s.minesLeft }}</b></span>
-    <span>Time: <b>{{ time }}</b></span>
-    <span>Best: <b>{{ s.best ? s.best + 's' : '-' }}</b></span>
-    <button @click="newGame(s.level)">New Game</button>
-    <button :disabled="!s.canUndo" @click="vm.undo()">Undo</button>
-    <button :disabled="!s.canRedo" @click="vm.redo()">Redo</button>
-    <label><input type="checkbox" :checked="!s.muted" @change="vm.setMuted(!$event.target.checked)"> Sound</label>
-    <input type="range" min="0" max="1" step="0.1" :value="s.volume" @change="vm.setVolume($event.target.value)" title="volume">
+    <span>Mines: <b id="mines">{{ s.minesLeft }}</b></span>
+    <span>Time: <b id="time">{{ time }}</b></span>
+    <span>Best: <b id="best">{{ s.best ? s.best + 's' : '-' }}</b></span>
+    <button id="new" @click="newGame(s.level)">New Game</button>
+    <button id="undo" :disabled="!s.canUndo" @click="vm.undo()">Undo</button>
+    <button id="redo" :disabled="!s.canRedo" @click="vm.redo()">Redo</button>
+    <label><input id="sound" type="checkbox" :checked="!s.muted" @change="vm.setMuted(!$event.target.checked)"> Sound</label>
+    <input id="volume" type="range" min="0" max="1" step="0.1" :value="s.volume" @change="vm.setVolume($event.target.value)" title="volume">
   </div>
-  <div>{{ statusText }}</div>
+  <div id="status">{{ statusText }}</div>
   <p><small>Touch: long-press to flag. Keyboard keys are listed (and rebindable) below.</small></p>
 
   <details>
@@ -37,13 +37,14 @@
       </button>
       <button @click="vm.startRebind(a)">{{ s.rebinding === a ? 'press a key...' : '+ add key' }}</button>
     </div>
-    <button @click="vm.resetKeys()">Reset keys</button> <span>{{ s.keyMessage }}</span>
+    <button id="resetkeys" @click="vm.resetKeys()">Reset keys</button> <span id="keymsg">{{ s.keyMessage }}</span>
   </details>
   <details>
-    <summary>Settings file</summary>
-    <button @click="downloadSettings">Download settings</button>
-    <label>Upload settings: <input type="file" accept=".json,application/json" @change="uploadSettings"></label>
-    <span>{{ settingsMsg }}</span>
+    <summary>Files: settings and saved game</summary>
+    <p><small>Your game in progress is also saved automatically and resumes when you reopen the page.</small></p>
+    <button id="export" @click="downloadSettings">Download settings</button> <button id="exportGame" @click="downloadGame">Download game</button>
+    <label>Upload a settings or game file: <input id="settingsFile" type="file" accept=".json,application/json" @change="uploadFile"></label>
+    <span id="settingsMsg">{{ settingsMsg }}</span>
   </details><br>
 
   <div id="board" :style="{ '--cols': s.cols, '--s': px + 'px' }">
@@ -52,10 +53,5 @@
             @pointerup="pressEnd" @pointerleave="pressEnd" @pointercancel="pressEnd">{{ it.text }}</button>
   </div>
 </div>
-<script src="vendor/vue.global.prod.js"></script>
-<script src="src/game.js"></script>
-<script src="src/viewmodel.js"></script>
-<script src="src/sound.js"></script>
-<script src="src/settingsfile.js"></script>
-<script src="src/vue-app.js"></script>
+<script src="dist/vue-app.js"></script>
 </body></html>
