@@ -1,9 +1,10 @@
-// Minesweeper game logic. No DOM code here, so it can be tested with plain Node.
+// Minesweeper game logic (the Model). No DOM code here, so it can be tested with plain Node.
+// Patterns used here: Memento (createMemento / restoreMemento, with `history` and `redoStack` as the caretaker's stacks),
+// Command (moves are Command objects, see commands.js) and Strategy (the board shape, see topology.js).
 (function (root) {
-  const Rng = typeof module !== 'undefined' ? require('./rng.js') : root.Rng;
-  const Solver = typeof module !== 'undefined' ? require('./solver.js') : root.Solver;
-  const TOPOLOGIES = ['square', 'hex', 'torus'];
-  const STATUSES = ['playing', 'won', 'lost', 'timeout'];
+  const dep = (name, global) => (typeof module !== 'undefined' ? require(name) : root[global]);
+  const Rng = dep('./rng.js', 'Rng'), Solver = dep('./solver.js', 'Solver'), Topology = dep('./topology.js', 'Topology');
+  const Commands = dep('./commands.js', 'Commands');
 
   class Game {
     // opts (all optional):
@@ -16,14 +17,14 @@
     //  seed n         reproduce one specific board (otherwise a seed is drawn from rng)
     constructor(rows = 9, cols = 9, mines = 10, rng = Math.random, opts = {}) {
       this.rows = rows; this.cols = cols; this.mineCount = mines; this.rng = rng;
-      this.topology = TOPOLOGIES.includes(opts.topology) ? opts.topology : 'square';
+      this.topology = Topology.ids.includes(opts.topology) ? opts.topology : 'square';
       this.initialLives = Number.isInteger(opts.lives) && opts.lives > 0 ? opts.lives : null;
       this.powerups = !!opts.powerups;
       this.undoLimit = Number.isInteger(opts.undoLimit) && opts.undoLimit >= 0 ? opts.undoLimit : null;
       this.players = opts.players === 2 ? 2 : 1;
       this.noGuess = !!opts.noGuess;
       this.seed = Number.isInteger(opts.seed) ? opts.seed : Math.floor(rng() * 2147483647);
-      this.nb = Solver.buildNeighbors(rows, cols, this.topology);          // neighbour indexes per cell
+      this.nb = Topology.buildNeighbors(rows, cols, this.topology);        // neighbour indexes per cell (the topology Strategy)
       this.nbPairs = this.nb.map(list => list.map(i => [Math.floor(i / cols), i % cols]));
       this.newGame();
     }
@@ -46,7 +47,7 @@
       this.scores = [0, 0];                           // cells revealed per player
       this.moveCount = 0;                             // how many of `moves` are in effect
       // State that undo does NOT restore:
-      this.moves = [];                                // log of moves [type, r, c] for replays; type r/c/f/q/s
+      this.moves = [];                                // the Commands run so far, for replays (see commands.js)
       this.undoCount = 0;
       this.undosLeft = this.undoLimit;
       this.hintsUsed = 0;
@@ -99,57 +100,38 @@
       this.minesPlaced = true;
     }
 
-    // ---- Undo ----
-    // A snapshot is a deep copy of everything that can change.
-    _snapshot() {
+    // ---- Undo (Memento) ----
+    // A memento is a deep copy of everything that can change, taken before each move. `history` holds the mementos of
+    // earlier moves (undo pops one and restores it); `redoStack` holds the states undo threw away.
+    createMemento() {
       return { cells: this.cells.map(row => row.map(cell => ({ ...cell }))), status: this.status,
                minesPlaced: this.minesPlaced, exploded: this.exploded && { ...this.exploded },
                lives: this.lives, scanner: this.scanner, shield: this.shield, scans: this.scans.map(s => ({ ...s })),
                current: this.current, scores: [...this.scores], moveCount: this.moveCount };
     }
-    _restore(s) { Object.assign(this, s); }
+    restoreMemento(m) { Object.assign(this, m); }
 
-    // Remember the state for undo, drop any redo, and note the move for the replay log.
-    _begin(snap, type, r, c) {
-      this.history.push(snap);
+    // Called by a command that is about to change the game: keep the memento for undo, drop any redo, log the command.
+    record(memento, command) {
+      this.history.push(memento);
       this.redoStack = [];                    // a new move invalidates redo
       this.moves.length = this.moveCount;     // (a move after an undo replaces the undone ones)
-      this.moves.push([type, r, c]);
+      this.moves.push(command);
       this.moveCount++;
     }
 
-    // ---- Moves ----
-    // Left click on a hidden cell. Returns true if the game state changed.
-    reveal(r, c) {
-      if (this.status !== 'playing') return false;
-      const cell = this.cells[r][c];
-      if (cell.revealed || cell.flagged) return false; // ignored clicks are not undoable moves
-      const snap = this._snapshot();          // taken BEFORE placing mines, so undoing move 1 un-places them
-      if (!this.minesPlaced) this.placeMines(r, c);
-      this._begin(snap, 'r', r, c);           // one entry per click, however many cells open
-      this._endMove(this._openCell(r, c));
-      return true;
-    }
+    // ---- Moves (each one is a Command; these are shortcuts for running it) ----
+    execute(command) { return command.execute(this); }
+    reveal(r, c) { return this.execute(new Commands.RevealCommand(r, c)); }
+    chord(r, c) { return this.execute(new Commands.ChordCommand(r, c)); }
+    // Right click: hidden -> flag -> (with question marks) "?" -> hidden. Without question marks it just toggles the flag.
+    mark(r, c, question = false) { return this.execute(new Commands.MarkCommand(r, c, question)); }
+    toggleFlag(r, c) { return this.mark(r, c, false); }
+    // Scanner power-up: count the mines in the cell and its neighbours.
+    scan(r, c) { return this.execute(new Commands.ScanCommand(r, c)); }
 
-    // Chord: click a revealed number whose flag count equals its number -> open all its unflagged neighbours.
-    // Wrong flags can open a mine, which costs a life or loses (standard rules). One undo step for the whole chord.
-    chord(r, c) {
-      if (this.status !== 'playing') return false;
-      const cell = this.cells[r][c];
-      if (!cell.revealed || cell.adjacent === 0) return false;
-      const around = this.neighbors(r, c);
-      if (around.filter(([y, x]) => this.cells[y][x].flagged).length !== cell.adjacent) return false;
-      const targets = around.filter(([y, x]) => !this.cells[y][x].revealed && !this.cells[y][x].flagged);
-      if (targets.length === 0) return false;
-      this._begin(this._snapshot(), 'c', r, c);
-      let gained = 0;
-      for (const [y, x] of targets) gained += this._openCell(y, x);
-      this._endMove(gained);
-      return true;
-    }
-
-    // Open one cell (no snapshot). A mine is handled by _hitMine; otherwise flood-fill. Returns cells newly revealed.
-    _openCell(r, c) {
+    // Open one cell (no memento). A mine is handled by _hitMine; otherwise flood-fill. Returns cells newly revealed.
+    openCell(r, c) {
       const cell = this.cells[r][c];
       if (cell.revealed || cell.flagged) return 0;
       if (cell.mine) { this._hitMine(cell, r, c); return 0; }
@@ -179,38 +161,13 @@
     }
 
     // After a reveal or chord: score the cells, check for a win, pass the turn (two players).
-    _endMove(gained) {
+    endMove(gained) {
       this.scores[this.current] += gained;
       if (this.status === 'playing' && this._allSafeRevealed()) {
         this.status = 'won';
         for (const row of this.cells) for (const k of row) if (k.mine && !k.revealed) { k.flagged = true; k.question = false; }
       }
       if (this.players === 2 && this.status === 'playing') this.current = 1 - this.current;
-    }
-
-    // Right click: hidden -> flag -> (with question marks) "?" -> hidden. Without question marks it just toggles the flag.
-    // Marking is an undoable move but does not pass the turn.
-    mark(r, c, question = false) {
-      if (this.status !== 'playing') return false;
-      const cell = this.cells[r][c];
-      if (cell.revealed) return false;
-      this._begin(this._snapshot(), question ? 'q' : 'f', r, c);
-      if (!cell.flagged && !cell.question) cell.flagged = true;
-      else if (cell.flagged) { cell.flagged = false; cell.question = question; }
-      else cell.question = false;
-      return true;
-    }
-    toggleFlag(r, c) { return this.mark(r, c, false); }
-
-    // Scanner power-up: count the mines in the cell and its neighbours (the 3x3 area; 7 cells on a hex board).
-    scan(r, c) {
-      if (this.status !== 'playing' || !this.powerups || this.scanner <= 0 || !this.minesPlaced) return false;
-      if (this.scans.some(s => s.r === r && s.c === c)) return false;
-      this._begin(this._snapshot(), 's', r, c);
-      this.scanner--;
-      const n = (this.cells[r][c].mine ? 1 : 0) + this.neighbors(r, c).filter(([y, x]) => this.cells[y][x].mine).length;
-      this.scans.push({ r, c, n });
-      return true;
     }
 
     // Hint: a hidden cell that is certainly safe, worked out only from what the player can see (the open numbers).
@@ -220,7 +177,8 @@
       const flat = this.cells.flat();
       const revealed = flat.map(c => (c.revealed && !c.mine ? 1 : 0)), num = flat.map(c => c.adjacent);
       const knownMine = flat.map(c => (c.revealed && c.mine ? 1 : 0)); // mines already hit in lives mode
-      const i = Solver.hint(this.nb, revealed, num, knownMine);
+      // (the global mine count is only used while the shield has not hidden a mine under a flag)
+      const i = Solver.hint(this.nb, revealed, num, knownMine, this.powerups && this.shield === 0 ? undefined : this.mineCount);
       if (i < 0) return null;
       this.hintsUsed++;
       return { r: Math.floor(i / this.cols), c: i % this.cols };
@@ -235,8 +193,8 @@
     // Counts against a limited-undo challenge. Empty history (or no undos left): does nothing, returns false.
     undo() {
       if (!this.canUndo()) return false;
-      this.redoStack.push(this._snapshot());
-      this._restore(this.history.pop());
+      this.redoStack.push(this.createMemento());
+      this.restoreMemento(this.history.pop());
       this.undoCount++;
       if (this.undosLeft !== null) this.undosLeft--;
       return true;
@@ -244,8 +202,8 @@
     // Redo: mirror image of undo (free).
     redo() {
       if (!this.canRedo()) return false;
-      this.history.push(this._snapshot());
-      this._restore(this.redoStack.pop());
+      this.history.push(this.createMemento());
+      this.restoreMemento(this.redoStack.pop());
       return true;
     }
     // Time attack: the clock ran out. Final: undo is off afterwards.
@@ -287,103 +245,12 @@
       const frame = () => ({ cells: g.cells.map(row => row.map(cell => ({ ...cell }))), status: g.status, lives: g.lives,
                              scans: g.scans.map(s => ({ ...s })), current: g.current, scores: [...g.scores], exploded: g.exploded && { ...g.exploded } });
       const frames = [frame()];
-      for (const [type, r, c] of this.moves.slice(0, this.moveCount)) {
-        if (type === 'r') g.reveal(r, c); else if (type === 'c') g.chord(r, c);
-        else if (type === 'f') g.mark(r, c, false); else if (type === 'q') g.mark(r, c, true); else if (type === 's') g.scan(r, c);
+      for (const command of this.moves.slice(0, this.moveCount)) { // the same Commands, run again on the fresh copy
+        command.execute(g);
         frames.push(frame());
       }
       if (this.status === 'timeout') { g.status = 'timeout'; frames.push(frame()); }
       return frames;
-    }
-
-    // ---- Save / load ----
-    // Compact JSON form: a board is one string, one character per cell (bits: 1 mine, 2 revealed, 4 flagged, 8 question,
-    // adjacent << 4), so even a long undo history stays small.
-    serialize() {
-      const enc = cells => cells.flat().map(c => String.fromCharCode(48 +
-        ((c.mine ? 1 : 0) | (c.revealed ? 2 : 0) | (c.flagged ? 4 : 0) | (c.question ? 8 : 0) | (c.adjacent << 4)))).join('');
-      const snap = s => ({ cells: enc(s.cells), status: s.status, minesPlaced: s.minesPlaced, exploded: s.exploded,
-                           lives: s.lives, scanner: s.scanner, shield: s.shield, scans: s.scans, current: s.current,
-                           scores: s.scores, moveCount: s.moveCount });
-      return { fmt: 2, rows: this.rows, cols: this.cols, mines: this.mineCount, topology: this.topology, lives0: this.initialLives,
-               powerups: this.powerups, undoLimit: this.undoLimit, players: this.players, noGuess: this.noGuess,
-               guessFree: this.guessFree, seed: this.seed, undoCount: this.undoCount, undosLeft: this.undosLeft,
-               hintsUsed: this.hintsUsed, moves: this.moves, ...snap(this),
-               history: this.history.map(snap), redo: this.redoStack.map(snap) };
-    }
-
-    // Rebuild a Game from serialize() output (older saves without `fmt` still load). The input may come from an uploaded
-    // file, so everything is checked (sizes, characters, mine count, every number against its neighbours, status,
-    // counters); returns null if anything is off.
-    static deserialize(d, rng = Math.random) {
-      const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
-      const bool = v => typeof v === 'boolean';
-      const nullOr = (v, f) => v === null || f(v);
-      if (!d || typeof d !== 'object' || !int(d.rows, 1, 50) || !int(d.cols, 1, 50) || !int(d.mines, 1, d.rows * d.cols - 1)) return null;
-      if (!Array.isArray(d.history) || !Array.isArray(d.redo) || d.history.length > 5000 || d.redo.length > 5000) return null;
-      const v2 = d.fmt === 2;
-      if (d.fmt !== undefined && !v2) return null;
-      const cfg = v2 ? d : { topology: 'square', lives0: null, powerups: false, undoLimit: null, players: 1, noGuess: false,
-                             guessFree: true, seed: 0, undoCount: 0, undosLeft: null, hintsUsed: 0, moves: [] };
-      if (!TOPOLOGIES.includes(cfg.topology) || !nullOr(cfg.lives0, v => int(v, 1, 9)) || !bool(cfg.powerups) ||
-          !nullOr(cfg.undoLimit, v => int(v, 0, 99)) || !int(cfg.players, 1, 2) || !bool(cfg.noGuess) || !bool(cfg.guessFree) ||
-          !int(cfg.seed, 0, 2147483647) || !int(cfg.undoCount, 0, 100000) || !nullOr(cfg.undosLeft, v => int(v, 0, 99)) ||
-          (cfg.undoLimit === null) !== (cfg.undosLeft === null) || !int(cfg.hintsUsed, 0, 100000)) return null;
-      if (!Array.isArray(cfg.moves) || cfg.moves.length > 5000 ||
-          !cfg.moves.every(m => Array.isArray(m) && m.length === 3 && 'rcfqs'.includes(m[0]) && m[0].length === 1 &&
-                                int(m[1], 0, d.rows - 1) && int(m[2], 0, d.cols - 1))) return null;
-      const g = new Game(d.rows, d.cols, d.mines, rng, { topology: cfg.topology, lives: cfg.lives0, powerups: cfg.powerups,
-                         undoLimit: cfg.undoLimit, players: cfg.players, noGuess: cfg.noGuess, seed: cfg.seed });
-      const shift = v2 ? 4 : 3; // old saves had 3 flag bits and no question mark
-
-      const decode = p => {
-        if (!p || typeof p !== 'object' || typeof p.cells !== 'string' || p.cells.length !== d.rows * d.cols) return null;
-        if (!STATUSES.includes(p.status) || !bool(p.minesPlaced)) return null;
-        let exploded = null;
-        if (p.exploded !== null) {
-          if (!p.exploded || !int(p.exploded.r, 0, d.rows - 1) || !int(p.exploded.c, 0, d.cols - 1)) return null;
-          exploded = { r: p.exploded.r, c: p.exploded.c };
-        }
-        const x = v2 ? p : { lives: null, scanner: 0, shield: 0, scans: [], current: 0, scores: [0, 0], moveCount: 0 };
-        if (!(cfg.lives0 === null ? x.lives === null : int(x.lives, 0, cfg.lives0))) return null;
-        if (!int(x.scanner, 0, cfg.powerups ? 3 : 0) || !int(x.shield, 0, cfg.powerups ? 1 : 0)) return null;
-        if (!Array.isArray(x.scans) || x.scans.length > 100 ||
-            !x.scans.every(s => s && int(s.r, 0, d.rows - 1) && int(s.c, 0, d.cols - 1) && int(s.n, 0, 9))) return null;
-        if (!int(x.current, 0, cfg.players - 1) || !Array.isArray(x.scores) || x.scores.length !== 2 ||
-            !x.scores.every(v => int(v, 0, 100000)) || !int(x.moveCount, 0, cfg.moves.length)) return null;
-        const cells = [];
-        let mines = 0, revealedSafe = 0, anyRevealed = false;
-        for (let r = 0; r < d.rows; r++) {
-          const row = [];
-          for (let c = 0; c < d.cols; c++) {
-            const code = p.cells.charCodeAt(r * d.cols + c) - 48;
-            if (!(code >= 0 && code < (9 << shift))) return null; // adjacent is at most 8
-            const cell = { mine: !!(code & 1), revealed: !!(code & 2), flagged: !!(code & 4),
-                           question: v2 && !!(code & 8), adjacent: code >> shift };
-            if ((cell.flagged && cell.question) || (cell.revealed && (cell.flagged || cell.question))) return null;
-            if (cell.mine) mines++;
-            if (cell.revealed) { anyRevealed = true; if (!cell.mine) revealedSafe++; }
-            row.push(cell);
-          }
-          cells.push(row);
-        }
-        for (let r = 0; r < d.rows; r++)
-          for (let c = 0; c < d.cols; c++) {
-            const expected = g.neighbors(r, c).filter(([a, b]) => cells[a][b].mine).length;
-            if (cells[r][c].adjacent !== (p.minesPlaced ? expected : 0)) return null;
-          }
-        if (p.minesPlaced ? mines !== d.mines : (mines !== 0 || anyRevealed)) return null;
-        if (p.status === 'lost' && !exploded) return null;
-        if (p.status === 'won' && revealedSafe !== d.rows * d.cols - d.mines) return null;
-        return { cells, status: p.status, minesPlaced: p.minesPlaced, exploded, lives: x.lives, scanner: x.scanner,
-                 shield: x.shield, scans: x.scans.map(s => ({ r: s.r, c: s.c, n: s.n })), current: x.current,
-                 scores: [...x.scores], moveCount: x.moveCount };
-      };
-      const cur = decode(d), history = d.history.map(decode), redo = d.redo.map(decode);
-      if (!cur || history.includes(null) || redo.includes(null)) return null;
-      Object.assign(g, cur, { history, redoStack: redo, guessFree: cfg.guessFree, undoCount: cfg.undoCount,
-                              undosLeft: cfg.undosLeft, hintsUsed: cfg.hintsUsed, moves: cfg.moves.map(m => [m[0], m[1], m[2]]) });
-      return g;
     }
   }
 

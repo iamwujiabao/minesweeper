@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { Game } = require('../src/game.js');
+const Serializer = require('../src/serializer.js');
 const { mulberry32 } = require('../src/rng.js');
 const Solver = require('../src/solver.js');
 
@@ -11,7 +12,7 @@ const wall = opts => { const g = new Game(5, 5, 5, Math.random, opts); g.setMine
 const revealed = g => g.cells.flat().filter(c => c.revealed).length;
 const same = (a, b) => assert.deepStrictEqual(a.map(row => row.map(({ mine, revealed, flagged, question, adjacent }) => ({ mine, revealed, flagged, question, adjacent }))),
                                               b.map(row => row.map(({ mine, revealed, flagged, question, adjacent }) => ({ mine, revealed, flagged, question, adjacent }))));
-const roundTrip = g => Game.deserialize(JSON.parse(JSON.stringify(g.serialize())));
+const roundTrip = g => Serializer.deserialize(JSON.parse(JSON.stringify(Serializer.serialize(g))));
 
 // ---- question marks ----
 test('mark cycles hidden -> flag -> ? -> hidden; a plain toggle skips the ?', () => {
@@ -258,7 +259,7 @@ test('everything new survives serialize/deserialize', () => {
   g.mark(4, 4, true); g.mark(4, 4, true); g.scan(1, 3); g.reveal(0, 0); g.hint(); g.undo();
   const h = roundTrip(g);
   assert.ok(h);
-  assert.deepStrictEqual(h.serialize(), g.serialize());
+  assert.deepStrictEqual(Serializer.serialize(h), Serializer.serialize(g));
   assert.deepStrictEqual([h.scanner, h.shield, h.lives, h.current, h.undosLeft, h.undoCount, h.hintsUsed], [g.scanner, g.shield, g.lives, g.current, g.undosLeft, g.undoCount, g.hintsUsed]);
   assert.deepStrictEqual(h.replayFrames().length, g.replayFrames().length);
   h.redo(); g.redo(); same(h.cells, g.cells);
@@ -271,7 +272,7 @@ test('saves from before the new features still load', () => {
   const code = (mine, rev, flag, adj) => String.fromCharCode(48 + (mine | (rev << 1) | (flag << 2) | (adj << 3)));
   const cells = code(0, 1, 0, 1) + code(1, 0, 0, 0) + code(0, 0, 0, 1);       // 1x3: open 1, mine, hidden 1
   const snap = { cells, status: 'playing', minesPlaced: true, exploded: null };
-  const g = Game.deserialize({ rows: 1, cols: 3, mines: 1, ...snap, history: [{ ...snap, cells: code(0, 0, 0, 1) + code(1, 0, 0, 0) + code(0, 0, 0, 1) }], redo: [] });
+  const g = Serializer.deserialize({ rows: 1, cols: 3, mines: 1, ...snap, history: [{ ...snap, cells: code(0, 0, 0, 1) + code(1, 0, 0, 0) + code(0, 0, 0, 1) }], redo: [] });
   assert.ok(g);
   assert.strictEqual(g.cells[0][0].revealed, true);
   assert.strictEqual(g.topology, 'square'); assert.strictEqual(g.lives, null);
@@ -279,7 +280,7 @@ test('saves from before the new features still load', () => {
 });
 
 test('tampered new fields are rejected', () => {
-  const base = () => JSON.parse(JSON.stringify(wall({ powerups: true, lives: 3, undoLimit: 2 }).serialize()));
+  const base = () => JSON.parse(JSON.stringify(Serializer.serialize(wall({ powerups: true, lives: 3, undoLimit: 2 }))));
   const bad = [
     d => { d.topology = 'cube'; }, d => { d.lives = 7; }, d => { d.lives = null; }, d => { d.scanner = 9; }, d => { d.shield = 2; },
     d => { d.scans = [{ r: 0, c: 0, n: 99 }]; }, d => { d.current = 1; }, d => { d.scores = [1]; }, d => { d.moveCount = 3; },
@@ -288,6 +289,6 @@ test('tampered new fields are rejected', () => {
     d => { d.cells = String.fromCharCode(48 + 6) + d.cells.slice(1); },          // revealed and flagged at once
     d => { d.cells = String.fromCharCode(48 + 10) + d.cells.slice(1); },         // revealed and question at once
   ];
-  assert.ok(Game.deserialize(base()));
-  for (const f of bad) { const d = base(); f(d); assert.strictEqual(Game.deserialize(d), null, f.toString()); }
+  assert.ok(Serializer.deserialize(base()));
+  for (const f of bad) { const d = base(); f(d); assert.strictEqual(Serializer.deserialize(d), null, f.toString()); }
 });

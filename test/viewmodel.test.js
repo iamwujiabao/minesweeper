@@ -1,4 +1,5 @@
 const test = require('node:test');
+const Serializer = require('../src/serializer.js');
 const assert = require('node:assert');
 const { ViewModel, clampCustom, cellSize } = require('../src/viewmodel.js');
 
@@ -246,7 +247,7 @@ test('exportGame then importFile restores the game, difficulty and time in anoth
   const b = new ViewModel(fakeStorage());
   assert.deepStrictEqual(b.importFile(a.exportGame()), { ok: true, kind: 'game' });
   assert.deepStrictEqual([b.level, b.custom, b.elapsed, b.game.rows, b.game.cols], ['custom', [6, 7, 5], 41, 6, 7]);
-  assert.strictEqual(JSON.stringify(b.game.serialize()), JSON.stringify(a.game.serialize()));
+  assert.strictEqual(JSON.stringify(Serializer.serialize(b.game)), JSON.stringify(Serializer.serialize(a.game)));
   b.undo(); assert.strictEqual(b.game.canUndo(), false);
 });
 

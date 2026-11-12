@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { Game } = require('../src/game.js');
+const Serializer = require('../src/serializer.js');
 
 // 5x5 with a wall of mines down column 2: revealing (0,0) opens only columns 0-1.
 const wall = () => { const g = new Game(5, 5, 5); g.setMines([[0,2],[1,2],[2,2],[3,2],[4,2]]); return g; };
@@ -197,12 +198,12 @@ const played = () => { // a game with flags, a flood-fill, an undo and a redo pe
   g.toggleFlag(4, 4); g.reveal(0, 0); g.toggleFlag(0, 2); g.undo();
   return g;
 };
-const roundTrip = g => Game.deserialize(JSON.parse(JSON.stringify(g.serialize())));
+const roundTrip = g => Serializer.deserialize(JSON.parse(JSON.stringify(Serializer.serialize(g))));
 
 test('serialize/deserialize restores the exact state, history and redo', () => {
   const g = played(), h = roundTrip(g);
   assert.deepStrictEqual(h.cells, g.cells); // deepStrictEqual ignores key order
-  assert.deepStrictEqual(h.serialize(), g.serialize());
+  assert.deepStrictEqual(Serializer.serialize(h), Serializer.serialize(g));
   assert.strictEqual(h.history.length, g.history.length);
   assert.strictEqual(h.canRedo(), true);
   h.redo(); g.redo();
@@ -226,11 +227,11 @@ test('a lost game round-trips with its exploded cell', () => {
 });
 
 test('deserialize rejects inconsistent or malformed data', () => {
-  const good = () => JSON.parse(JSON.stringify(played().serialize()));
-  const mutate = f => { const d = good(); f(d); return Game.deserialize(d); };
-  assert.ok(Game.deserialize(good()));
-  assert.strictEqual(Game.deserialize(null), null);
-  assert.strictEqual(Game.deserialize('x'), null);
+  const good = () => JSON.parse(JSON.stringify(Serializer.serialize(played())));
+  const mutate = f => { const d = good(); f(d); return Serializer.deserialize(d); };
+  assert.ok(Serializer.deserialize(good()));
+  assert.strictEqual(Serializer.deserialize(null), null);
+  assert.strictEqual(Serializer.deserialize('x'), null);
   assert.strictEqual(mutate(d => { d.cells = d.cells.slice(1); }), null);               // wrong length
   assert.strictEqual(mutate(d => { d.cells = '~' + d.cells.slice(1); }), null);          // invalid character
   assert.strictEqual(mutate(d => { d.mines = 4; }), null);                               // mine count mismatch
