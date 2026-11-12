@@ -51,6 +51,6 @@ The page is a set of static files, so GitHub Pages can host it as it is. The wor
 
 1. Create a repository on GitHub and push this project to its main branch.
 2. In the repository, open Settings, then Pages, and set Source to GitHub Actions.
-3. Push again (or run the workflow from the Actions tab). The address appears in the workflow summary; it looks like https://YOUR-NAME.github.io/YOUR-REPOSITORY/.
+3. Run the workflow from the Actions tab (or push again). If the deploy step says "Get Pages site failed ... Not Found", Pages is not switched on yet: do step 2, then use Re-run all jobs. The address appears in the workflow summary; it looks like https://YOUR-NAME.github.io/YOUR-REPOSITORY/.
 
 All the page's links are relative, so it works under that sub-path. The second workflow, e2e.yml, runs the browser tests; it only runs when started by hand from the Actions tab.
