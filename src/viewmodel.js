@@ -4,6 +4,8 @@
 (function (root) {
   const G = typeof module !== 'undefined' ? require('./game.js').Game : root.Game;
   const LEVELS = { beginner: [9, 9, 10], intermediate: [16, 16, 40], expert: [16, 30, 99] }; // rows, cols, mines
+  const LEVEL_NAMES = { beginner: 'Beginner', intermediate: 'Intermediate', expert: 'Expert', custom: 'Custom' };
+  const SLOTS = 3, TOP = 5; // saved-game slots, and best-time rows kept per difficulty
   const isLevel = l => l === 'custom' || Object.prototype.hasOwnProperty.call(LEVELS, l); // not `in`: avoids 'constructor' etc.
 
   // Keyboard actions and their default keys (arrays: an action can have several keys). Single letters are lowercase.
@@ -57,6 +59,8 @@
       let keys = null;
       try { keys = parseKeys(JSON.parse(storage.getItem('ms-keys'))); } catch (e) {}
       this.keys = keys || { ...DEFAULT_KEYS };
+      this.scores = this._loadScores();
+      this.slotLabels = Array.from({ length: SLOTS }, (_, i) => this._slotLabel(i + 1));
       try { const c = JSON.parse(storage.getItem('ms-custom')); if (Array.isArray(c) && c.length === 3) this.custom = clampCustom(c); } catch (e) {}
       const v = storage.getItem('ms-volume');
       this.muted = storage.getItem('ms-muted') === '1';
@@ -85,9 +89,9 @@
     }
 
     // Left click: a revealed cell chords, a hidden cell reveals.
-    click(r, c) { this.cursor = { r, c }; this.game.cells[r][c].revealed ? this.game.chord(r, c) : this.game.reveal(r, c); this._changed(); }
+    click(r, c) { this.cursor = { r, c }; this.game.cells[r][c].revealed ? this.game.chord(r, c) : this.game.reveal(r, c); this._changed(true); }
     flag(r, c) { this.cursor = { r, c }; this.game.toggleFlag(r, c); this._changed(); }
-    chord(r, c) { this.cursor = { r, c }; this.game.chord(r, c); this._changed(); } // chord only, never reveals
+    chord(r, c) { this.cursor = { r, c }; this.game.chord(r, c); this._changed(true); } // chord only, never reveals
     move(dr, dc) { // keyboard cursor, stays on the board
       const { r, c } = this.cursor, g = this.game;
       this.cursor = { r: Math.min(g.rows - 1, Math.max(0, r + dr)), c: Math.min(g.cols - 1, Math.max(0, c + dc)) };
@@ -170,7 +174,7 @@
       this.level = d.level; this.custom = custom; this.game = g; this.elapsed = d.elapsed;
       this.gameId++; this.cursor = { r: 0, c: 0 }; this.rebinding = null; this.keyMessage = '';
       this.storage.setItem('ms-level', this.level); this.storage.setItem('ms-custom', JSON.stringify(this.custom));
-      this._changed(false); // false: a loaded win must not count as a new best time
+      this._changed(); // not recorded: a loaded win must not count as a new best time
       return true;
     }
     // One entry point for uploaded files: a saved game or a settings export.
@@ -217,14 +221,68 @@
       if (this.game.status === 'playing' && this.game.canUndo()) { this.elapsed++; this.onTick(this.elapsed); }
     }
 
-    best() { return Number(this.storage.getItem('ms-best-' + this.level)) || null; }
+    // ---- Best times: the TOP fastest wins per difficulty (not for custom boards, which are not comparable) ----
+    best() { const list = this.scores[this.level]; return list && list.length ? list[0].t : null; }
+    _loadScores() {
+      let saved = {};
+      try { saved = JSON.parse(this.storage.getItem('ms-scores')) || {}; } catch (e) {}
+      const out = {};
+      for (const level of Object.keys(LEVELS)) {
+        let list = (Array.isArray(saved[level]) ? saved[level] : []).filter(e => e && Number.isInteger(e.t) && e.t > 0)
+          .map(e => ({ t: e.t, at: Number.isFinite(e.at) ? e.at : null }));
+        const old = Number(this.storage.getItem('ms-best-' + level)); // single best time saved by an older version
+        if (!list.length && old > 0) list = [{ t: old, at: null }];
+        out[level] = list.sort((a, b) => a.t - b.t).slice(0, TOP);
+      }
+      return out;
+    }
+    _recordWin() {
+      this.scores = this._loadScores(); // pick up wins recorded meanwhile by another tab
+      const list = this.scores[this.level];
+      list.push({ t: this.elapsed, at: Date.now() });
+      list.sort((a, b) => a.t - b.t); list.length = Math.min(list.length, TOP);
+      this.storage.setItem('ms-scores', JSON.stringify(this.scores));
+    }
+    clearScores() {
+      this.scores = { beginner: [], intermediate: [], expert: [] };
+      this.storage.setItem('ms-scores', JSON.stringify(this.scores));
+      for (const level of Object.keys(LEVELS)) this.storage.setItem('ms-best-' + level, 0); // so an old single best doesn't come back
+      this.onChange(this.state());
+    }
 
-    _changed(recordBest = true) {
+    // ---- Saved-game slots (SLOTS of them, kept until overwritten or deleted; separate from the autosave) ----
+    _slotLabel(n) {
+      try {
+        const d = JSON.parse(this.storage.getItem('ms-slot-' + n));
+        if (!d || d.type !== 'game' || !isLevel(d.level) || !d.game || typeof d.game.status !== 'string') return null;
+        const when = Number.isFinite(d.savedAt) ? ', saved ' + new Date(d.savedAt).toLocaleString() : '';
+        return LEVEL_NAMES[d.level] + ', ' + d.game.status + ', ' + d.elapsed + 's' + when;
+      } catch (e) { return null; }
+    }
+    saveSlot(n) {
+      if (!Number.isInteger(n) || n < 1 || n > SLOTS) return false;
+      this.storage.setItem('ms-slot-' + n, JSON.stringify({ ...this._gameData(), savedAt: Date.now() }));
+      this.slotLabels[n - 1] = this._slotLabel(n);
+      this.onChange(this.state());
+      return true;
+    }
+    // False (nothing changes) if the slot is empty or its data is not a consistent saved game.
+    loadSlot(n) {
+      if (!Number.isInteger(n) || n < 1 || n > SLOTS) return false;
+      try { return this._loadGameData(JSON.parse(this.storage.getItem('ms-slot-' + n))); } catch (e) { return false; }
+    }
+    deleteSlot(n) {
+      if (!Number.isInteger(n) || n < 1 || n > SLOTS) return false;
+      this.storage.setItem('ms-slot-' + n, '');
+      this.slotLabels[n - 1] = null;
+      this.onChange(this.state());
+      return true;
+    }
+
+    // recordBest: true only after a player move (click/chord), so undo/redo, loading a file or a slot never add a time.
+    _changed(recordBest = false) {
       if (!this.game.canUndo()) this.elapsed = 0; // nothing played: new game or first move undone
-      const best = this.best();
-      // No high scores for custom boards (not comparable).
-      if (recordBest && this.game.status === 'won' && this.level !== 'custom' && this.elapsed > 0 && (!best || this.elapsed < best))
-        this.storage.setItem('ms-best-' + this.level, this.elapsed);
+      if (recordBest && this.game.status === 'won' && this.level !== 'custom' && this.elapsed > 0) this._recordWin();
       this.save();
       this.onChange(this.state());
     }
@@ -233,10 +291,12 @@
       const g = this.game;
       return { gameId: this.gameId, level: this.level, custom: this.custom, rows: g.rows, cols: g.cols, cells: g.cells, cursor: this.cursor,
                status: g.status, minesLeft: g.minesLeft(), keys: this.keys, rebinding: this.rebinding, keyMessage: this.keyMessage,
-               muted: this.muted, volume: this.volume, time: this.elapsed, best: this.best(), canUndo: g.canUndo(), canRedo: g.canRedo() };
+               muted: this.muted, volume: this.volume, time: this.elapsed, best: this.best(), scoreRows: TOP,
+               scores: Object.fromEntries(Object.entries(this.scores).map(([l, list]) => [l, list.map(e => ({ t: e.t, date: e.at ? new Date(e.at).toLocaleDateString() : '' }))])),
+               slots: this.slotLabels.map((label, i) => ({ n: i + 1, label })), canUndo: g.canUndo(), canRedo: g.canRedo() };
     }
   }
 
-  if (typeof module !== 'undefined') module.exports = { ViewModel, LEVELS, clampCustom, cellSize, DEFAULT_KEYS, ACTION_LABELS };
-  else { root.ViewModel = ViewModel; root.cellSize = cellSize; root.ACTION_LABELS = ACTION_LABELS; }
+  if (typeof module !== 'undefined') module.exports = { ViewModel, LEVELS, clampCustom, cellSize, DEFAULT_KEYS, ACTION_LABELS, LEVEL_NAMES };
+  else { root.ViewModel = ViewModel; root.cellSize = cellSize; root.ACTION_LABELS = ACTION_LABELS; root.LEVEL_NAMES = LEVEL_NAMES; }
 })(this);

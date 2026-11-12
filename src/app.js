@@ -1,6 +1,6 @@
 // View (MVVM), plain JavaScript: draws vm.state() and forwards DOM events to ViewModel commands. No game rules here.
-// Bundled with esbuild (npm run build) into dist/plain-app.js: no globals, everything is imported.
-import { ViewModel, cellSize, ACTION_LABELS } from './viewmodel.js';
+// Bundled with esbuild (npm run build) into dist/plain-app.js; the shared code comes from dist/core.js (see scripts/build.js).
+import { ViewModel, cellSize, ACTION_LABELS, LEVEL_NAMES } from './viewmodel.js';
 import { rngFromSearch } from './rng.js';
 import { Sound } from './sound.js';
 import { SettingsFile } from './settingsfile.js';
@@ -24,6 +24,7 @@ function render(s) {
   Sound.onState(s);
   levelEl.value = s.level; // restored from saved settings on load
   renderKeys(s);
+  renderSaves(s);
   customEl.hidden = s.level !== 'custom';
   [$('rows').value, $('cols').value, $('minesIn').value] = s.custom; // show clamped values
   boardEl.style.setProperty('--cols', s.cols);
@@ -91,6 +92,33 @@ function renderKeys(s) {
   $('keymsg').textContent = s.keyMessage;
 }
 $('resetkeys').onclick = () => vm.resetKeys();
+
+// Saved-game slots and the best-times table.
+function renderSaves(s) {
+  $('slots').innerHTML = '';
+  for (const { n, label } of s.slots) {
+    const row = document.createElement('div');
+    row.className = 'slotrow';
+    row.append(`Slot ${n}: ${label || 'empty'} `);
+    for (const [id, text, disabled, run] of [
+      ['save', 'Save here', false, () => { vm.saveSlot(n); $('slotMsg').textContent = `Saved to slot ${n}`; }],
+      ['load', 'Load', !label, () => { $('slotMsg').textContent = vm.loadSlot(n) ? `Loaded slot ${n}` : `Could not load slot ${n}`; }],
+      ['delete', 'Delete', !label, () => { vm.deleteSlot(n); $('slotMsg').textContent = `Deleted slot ${n}`; }],
+    ]) {
+      const b = document.createElement('button');
+      b.id = `slot-${id}-${n}`; b.textContent = text; b.disabled = disabled; b.onclick = run;
+      row.append(b, ' ');
+    }
+    $('slots').append(row);
+  }
+  const levels = Object.keys(s.scores);
+  $('scores').innerHTML = '<thead><tr>' + levels.map(l => `<th>${LEVEL_NAMES[l]}</th>`).join('') + '</tr></thead><tbody>' +
+    Array.from({ length: s.scoreRows }, (_, i) => '<tr>' + levels.map(l => {
+      const e = s.scores[l][i];
+      return e ? `<td title="${e.date}">${e.t}s</td>` : '<td></td>'; // numbers and locale dates only: nothing user-typed goes into the HTML
+    }).join('') + '</tr>').join('') + '</tbody>';
+}
+$('clear-scores').onclick = () => vm.clearScores();
 
 // Files: download settings or the game in progress, or upload either (validated all-or-nothing by the ViewModel).
 $('export').onclick = () => { SettingsFile.download(vm.exportSettings()); $('settingsMsg').textContent = 'Downloaded minesweeper-settings.json'; };

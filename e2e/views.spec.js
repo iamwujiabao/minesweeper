@@ -1,4 +1,5 @@
 // The same user-level checks run against all three views (plain JS, Vue, React): they share ids and behaviour.
+// playwright.config.js runs the whole file in desktop Chrome, Firefox, WebKit and two phone-sized touch screens.
 // Boards are reproducible: pages get ?seed=11, and the test builds the same board with the Game model
 // (same seed + same first click = same mines), so it knows where mines and numbers are.
 const { test, expect } = require('@playwright/test');
@@ -257,6 +258,94 @@ for (const file of PAGES) {
       data.game.cells = data.game.cells.slice(1); // wrong length
       await page.setInputFiles('#settingsFile', { name: 'bad-game.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(data)) });
       await expect(page.locator('#settingsMsg')).toContainText('Not a valid saved game');
+      await expect(opened(page)).toHaveCount(openCount(g));
+    });
+
+    // ---- saved-game slots and best times ----
+    test('saved-game slots: save, play on, load back, delete, survive reload', async ({ page }) => {
+      const g = model();
+      await load(page); await panels(page);
+      await expect(page.locator('#slot-load-1')).toBeDisabled();
+      await cell(page, 4, 4).click();
+      await page.click('#slot-save-2');
+      await expect(page.locator('.slotrow').nth(1)).toContainText('Beginner, playing');
+      await expect(page.locator('.slotrow').nth(0)).toContainText('empty');
+
+      await page.click('#new');
+      await expect(opened(page)).toHaveCount(0);
+      await page.click('#slot-load-2');
+      await expect(page.locator('#slotMsg')).toContainText('Loaded slot 2');
+      await expect(opened(page)).toHaveCount(openCount(g));
+      await page.click('#undo');                                   // undo history was saved too
+      await expect(opened(page)).toHaveCount(0);
+
+      await page.click('#slot-save-3');                            // a different slot
+      await page.reload(); await panels(page);
+      await expect(page.locator('.slotrow').nth(1)).toContainText('Beginner');
+      await expect(page.locator('.slotrow').nth(2)).toContainText('Beginner');
+      await page.click('#slot-delete-2');
+      await expect(page.locator('.slotrow').nth(1)).toContainText('empty');
+      await expect(page.locator('#slot-load-2')).toBeDisabled();
+      await expect(page.locator('#slot-load-3')).toBeEnabled();
+    });
+
+    test('a win goes into the best-times table (top of the column, shown as Best) and can be cleared', async ({ page }) => {
+      const g = model();
+      await load(page); await panels(page);
+      await cell(page, 4, 4).click();
+      await expect.poll(async () => Number(await page.locator('#time').textContent()), { timeout: 6000 }).toBeGreaterThanOrEqual(1);
+      for (const [r, c] of hiddenSafe(g).map(([r, c]) => [r, c])) {
+        if (g.cells[r][c].revealed) continue;
+        g.reveal(r, c);
+        await cell(page, r, c).click();
+      }
+      await expect(page.locator('#status')).toContainText('won');
+      const first = page.locator('#scores tbody tr').first().locator('td').first();
+      await expect(first).toHaveText(/^\d+s$/);
+      await expect(page.locator('#best')).toHaveText(await first.textContent());
+      await expect(page.locator('#scores tbody tr')).toHaveCount(5);
+      await page.click('#undo');                                   // undo then winning again is a new win,
+      await expect(page.locator('#scores tbody tr').nth(1).locator('td').first()).toHaveText('');
+      await page.reload(); await panels(page);                     // but the first one persisted
+      await expect(page.locator('#scores tbody tr').first().locator('td').first()).toHaveText(/^\d+s$/);
+      await page.click('#clear-scores');
+      await expect(page.locator('#scores tbody tr').first().locator('td').first()).toHaveText('');
+    });
+
+    // ---- phones and touch ----
+    test('layout: the board never sticks out past the screen edge, even the largest one', async ({ page }) => {
+      // (a phone browser would zoom out to fit an overflowing page, so compare with the real screen width, not window.innerWidth)
+      const screenWidth = page.viewportSize().width;
+      const boardRight = () => page.evaluate(() => document.querySelector('#board').getBoundingClientRect().right);
+      await load(page);
+      expect(await boardRight()).toBeLessThanOrEqual(screenWidth);
+      await page.selectOption('#level', 'expert');
+      await expect(page.locator('#board button')).toHaveCount(480);
+      expect(await boardRight()).toBeLessThanOrEqual(screenWidth); // on a phone the board scrolls inside itself
+    });
+
+    test('touch: long-press flags, and the click that follows a long-press is ignored', async ({ page }) => {
+      await load(page);
+      const c = cell(page, 0, 0);
+      await c.evaluate(el => el.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true })));
+      await page.waitForTimeout(600);
+      await expect(c).toHaveText('🚩');
+      await c.evaluate(el => { el.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch', bubbles: true })); el.click(); });
+      await expect(c).toHaveText('🚩');                // the click did not reveal it
+      await expect(page.locator('#mines')).toHaveText('9');
+      await expect(opened(page)).toHaveCount(0);
+      // a short touch does not flag
+      const d = cell(page, 8, 8);
+      await d.evaluate(el => { el.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true })); el.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch', bubbles: true })); });
+      await page.waitForTimeout(600);
+      await expect(d).toHaveText('');
+    });
+
+    test('touch: tapping reveals a cell', async ({ page, hasTouch }) => {
+      test.skip(!hasTouch, 'needs a touch screen');
+      const g = model();
+      await load(page);
+      await cell(page, 4, 4).tap();
       await expect(opened(page)).toHaveCount(openCount(g));
     });
   });

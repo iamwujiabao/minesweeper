@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Minesweeper</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Minesweeper</title>
 <link rel="stylesheet" href="style.css"></head>
 <body>
   <h1>Minesweeper</h1>
@@ -19,6 +19,11 @@
   </div>
   <div id="status"></div><p><small>Touch: long-press to flag. Keyboard keys are listed (and rebindable) below.</small></p>
   <details id="keys"><summary>Keys</summary><div id="keylist"></div><button id="resetkeys">Reset keys</button> <span id="keymsg"></span></details>
+  <details id="saves"><summary>Saved games and best times</summary>
+    <div id="slots"></div>
+    <table id="scores"></table>
+    <button id="clear-scores">Clear best times</button> <span id="slotMsg"></span>
+  </details>
   <details id="settings"><summary>Files: settings and saved game</summary>
     <p><small>Your game in progress is also saved automatically and resumes when you reopen the page.</small></p>
     <button id="export">Download settings</button> <button id="exportGame">Download game</button>
@@ -26,5 +31,6 @@
     <span id="settingsMsg"></span>
   </details><br>
   <div id="board"></div>
+  <script src="dist/core.js"></script>
   <script src="dist/plain-app.js"></script>
 </body></html>

@@ -287,3 +287,90 @@ test('seeded rng gives reproducible boards', () => {
   assert.strictEqual(mines(3), mines(3));
   assert.notStrictEqual(mines(3), mines(4));
 });
+
+// ---- saved-game slots ----
+test('slots save, load and delete independently, keeping undo history', () => {
+  const st = fakeStorage(), vm = inProgress(st);
+  const open = vm.game.cells.flat().filter(c => c.revealed).length;
+  assert.deepStrictEqual(vm.state().slots.map(s => s.label), [null, null, null]);
+  assert.strictEqual(vm.saveSlot(2), true);
+  assert.match(vm.state().slots[1].label, /^Beginner, playing, 2s/);
+  assert.strictEqual(vm.state().slots[0].label, null);
+
+  vm.start('expert');                                   // play something else
+  assert.strictEqual(vm.loadSlot(2), true);
+  assert.strictEqual(vm.level, 'beginner');
+  assert.strictEqual(vm.game.cells.flat().filter(c => c.revealed).length, open);
+  assert.strictEqual(vm.elapsed, 2);
+  vm.undo(); vm.undo(); assert.strictEqual(vm.game.canUndo(), false);
+
+  vm.saveSlot(1);                                       // slots do not overwrite each other
+  assert.ok(vm.state().slots[0].label && vm.state().slots[1].label);
+  assert.ok(new ViewModel(st).state().slots[1].label);  // and survive a reload
+  assert.strictEqual(vm.deleteSlot(2), true);
+  assert.strictEqual(vm.loadSlot(2), false);
+  assert.strictEqual(vm.state().slots[1].label, null);
+  assert.ok(vm.state().slots[0].label);
+});
+
+test('slot numbers are checked; empty and corrupt slots do not load', () => {
+  const st = fakeStorage(), vm = new ViewModel(st);
+  for (const n of [0, 4, -1, 1.5, '1', NaN, undefined]) {
+    assert.strictEqual(vm.saveSlot(n), false); assert.strictEqual(vm.loadSlot(n), false); assert.strictEqual(vm.deleteSlot(n), false);
+  }
+  assert.strictEqual(vm.loadSlot(1), false);            // empty
+  st.setItem('ms-slot-1', '{"version":1,"type":"game","level":"beginner","custom":[9,9,10],"elapsed":0,"game":{"rows":9}}');
+  assert.strictEqual(vm.loadSlot(1), false);            // corrupt game
+  assert.strictEqual(new ViewModel(st).state().slots[0].label, null);
+  st.setItem('ms-slot-1', 'not json');
+  assert.strictEqual(vm.loadSlot(1), false);
+});
+
+test('loading a finished game from a slot adds no best time', () => {
+  const vm = new ViewModel(fakeStorage()); win(vm, 9);
+  vm.saveSlot(1); vm.clearScores();
+  vm.loadSlot(1);
+  assert.strictEqual(vm.state().status, 'won');
+  assert.strictEqual(vm.best(), null);
+});
+
+// ---- best-times table ----
+test('best times keep the 5 fastest per difficulty, sorted, and survive reload', () => {
+  const st = fakeStorage(), vm = new ViewModel(st);
+  for (const t of [30, 12, 20, 25, 9, 40, 15]) win(vm, t);
+  assert.deepStrictEqual(vm.state().scores.beginner.map(e => e.t), [9, 12, 15, 20, 25]);
+  assert.strictEqual(vm.best(), 9);
+  assert.deepStrictEqual(vm.state().scores.expert, []);
+  assert.strictEqual(vm.state().scoreRows, 5);
+  assert.deepStrictEqual(new ViewModel(st).state().scores.beginner.map(e => e.t), [9, 12, 15, 20, 25]);
+});
+
+test('undo then redo of the winning move does not add a second time', () => {
+  const vm = new ViewModel(fakeStorage()); win(vm, 9);
+  vm.undo(); vm.redo();
+  assert.strictEqual(vm.state().status, 'won');
+  assert.strictEqual(vm.state().scores.beginner.length, 1);
+});
+
+test('a single best time saved by an older version becomes the first table entry; clear removes it for good', () => {
+  const st = fakeStorage(); st.setItem('ms-best-beginner', 33);
+  const vm = new ViewModel(st);
+  assert.deepStrictEqual(vm.state().scores.beginner, [{ t: 33, date: '' }]);
+  win(vm, 50);
+  assert.deepStrictEqual(vm.state().scores.beginner.map(e => e.t), [33, 50]);
+  vm.clearScores();
+  assert.deepStrictEqual(vm.state().scores.beginner, []);
+  assert.strictEqual(vm.best(), null);
+  assert.strictEqual(new ViewModel(st).best(), null);   // the old value does not come back
+});
+
+test('corrupt score data is ignored; custom boards never record', () => {
+  const st = fakeStorage(); st.setItem('ms-scores', JSON.stringify({ beginner: [{ t: -5 }, { t: 'x' }, null, { t: 8, at: 'nope' }], expert: 'no' }));
+  const vm = new ViewModel(st);
+  assert.deepStrictEqual(vm.state().scores.beginner, [{ t: 8, date: '' }]);
+  assert.deepStrictEqual(vm.state().scores.expert, []);
+  st.setItem('ms-scores', '{bad');
+  assert.deepStrictEqual(new ViewModel(st).state().scores.beginner, []);
+  vm.start('custom', [5, 5, 1]); vm.click(0, 0); vm.elapsed = 5; vm.game.status = 'won'; vm._changed(true);
+  assert.strictEqual(vm.best(), null);
+});

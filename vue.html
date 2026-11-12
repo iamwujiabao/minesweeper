@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Minesweeper (Vue)</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Minesweeper (Vue)</title>
 <link rel="stylesheet" href="style.css"></head>
 <body>
 <!-- Same game and ViewModel as index.html; only the view is Vue 3, bundled into dist/vue-app.js by `npm run build` (works offline). -->
@@ -40,6 +40,22 @@
     <button id="resetkeys" @click="vm.resetKeys()">Reset keys</button> <span id="keymsg">{{ s.keyMessage }}</span>
   </details>
   <details>
+    <summary>Saved games and best times</summary>
+    <div v-for="slot in s.slots" :key="slot.n" class="slotrow">
+      Slot {{ slot.n }}: {{ slot.label || 'empty' }}
+      <button :id="'slot-save-' + slot.n" @click="saveSlot(slot.n)">Save here</button>
+      <button :id="'slot-load-' + slot.n" :disabled="!slot.label" @click="loadSlot(slot.n)">Load</button>
+      <button :id="'slot-delete-' + slot.n" :disabled="!slot.label" @click="deleteSlot(slot.n)">Delete</button>
+    </div>
+    <table id="scores">
+      <thead><tr><th v-for="(list, level) in s.scores" :key="level">{{ levelNames[level] }}</th></tr></thead>
+      <tbody><tr v-for="i in s.scoreRows" :key="i">
+        <td v-for="(list, level) in s.scores" :key="level" :title="list[i - 1] && list[i - 1].date">{{ list[i - 1] ? list[i - 1].t + 's' : '' }}</td>
+      </tr></tbody>
+    </table>
+    <button id="clear-scores" @click="vm.clearScores()">Clear best times</button> <span id="slotMsg">{{ slotMsg }}</span>
+  </details>
+  <details>
     <summary>Files: settings and saved game</summary>
     <p><small>Your game in progress is also saved automatically and resumes when you reopen the page.</small></p>
     <button id="export" @click="downloadSettings">Download settings</button> <button id="exportGame" @click="downloadGame">Download game</button>
@@ -53,5 +69,6 @@
             @pointerup="pressEnd" @pointerleave="pressEnd" @pointercancel="pressEnd">{{ it.text }}</button>
   </div>
 </div>
+<script src="dist/core.js"></script>
 <script src="dist/vue-app.js"></script>
 </body></html>

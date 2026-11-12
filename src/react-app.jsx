@@ -1,8 +1,8 @@
 // View (MVVM), React 18: the same ViewModel as app.js and vue-app.js, rendered by React.
-// Bundled by esbuild (npm run build) into dist/react-app.js: no globals, everything is imported.
+// Bundled by esbuild (npm run build) into dist/react-app.js; the shared code comes from dist/core.js (see scripts/build.js).
 import { useState, useEffect, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ViewModel, cellSize, ACTION_LABELS } from './viewmodel.js';
+import { ViewModel, cellSize, ACTION_LABELS, LEVEL_NAMES } from './viewmodel.js';
 import { rngFromSearch } from './rng.js';
 import { Sound } from './sound.js';
 import { SettingsFile } from './settingsfile.js';
@@ -72,6 +72,35 @@ function KeysPanel({ s }) {
         </div>
       ))}
       <button id="resetkeys" onClick={() => vm.resetKeys()}>Reset keys</button> <span id="keymsg">{s.keyMessage}</span>
+    </details>
+  );
+}
+
+function SavesPanel({ s }) {
+  const [msg, setMsg] = useState('');
+  return (
+    <details>
+      <summary>Saved games and best times</summary>
+      {s.slots.map(({ n, label }) => (
+        <div className="slotrow" key={n}>
+          Slot {n}: {label || 'empty'}{' '}
+          <button id={'slot-save-' + n} onClick={() => { vm.saveSlot(n); setMsg(`Saved to slot ${n}`); }}>Save here</button>{' '}
+          <button id={'slot-load-' + n} disabled={!label} onClick={() => setMsg(vm.loadSlot(n) ? `Loaded slot ${n}` : `Could not load slot ${n}`)}>Load</button>{' '}
+          <button id={'slot-delete-' + n} disabled={!label} onClick={() => { vm.deleteSlot(n); setMsg(`Deleted slot ${n}`); }}>Delete</button>
+        </div>
+      ))}
+      <table id="scores">
+        <thead><tr>{Object.keys(s.scores).map(l => <th key={l}>{LEVEL_NAMES[l]}</th>)}</tr></thead>
+        <tbody>
+          {Array.from({ length: s.scoreRows }, (_, i) => (
+            <tr key={i}>{Object.keys(s.scores).map(l => {
+              const e = s.scores[l][i];
+              return <td key={l} title={e ? e.date : undefined}>{e ? e.t + 's' : ''}</td>;
+            })}</tr>
+          ))}
+        </tbody>
+      </table>
+      <button id="clear-scores" onClick={() => vm.clearScores()}>Clear best times</button> <span id="slotMsg">{msg}</span>
     </details>
   );
 }
@@ -149,6 +178,7 @@ function App() {
       <div id="status">{STATUS[s.status]}</div>
       <p><small>Touch: long-press to flag. Keyboard keys are listed (and rebindable) below.</small></p>
       <KeysPanel s={s} />
+      <SavesPanel s={s} />
       <SettingsPanel />
       <br />
       <div id="board" style={{ '--cols': s.cols, '--s': px + 'px' }}>

@@ -1,8 +1,8 @@
 // View (MVVM), Vue 3: the same ViewModel as app.js, rendered by Vue. The ViewModel pushes a fresh
 // state() into one shallowRef; Vue re-renders from it. No game rules here either.
-// Bundled by esbuild (npm run build) into dist/vue-app.js; the page's own HTML is Vue's template.
+// Bundled by esbuild (npm run build) into dist/vue-app.js (shared code comes from dist/core.js); the page's own HTML is Vue's template.
 import { createApp, shallowRef, ref, computed, onMounted } from 'vue';
-import { ViewModel, cellSize, ACTION_LABELS } from './viewmodel.js';
+import { ViewModel, cellSize, ACTION_LABELS, LEVEL_NAMES } from './viewmodel.js';
 import { rngFromSearch } from './rng.js';
 import { Sound } from './sound.js';
 import { SettingsFile } from './settingsfile.js';
@@ -18,7 +18,7 @@ createApp({
     const time = ref(0);                      // separate so the timer doesn't recompute the board
     const custom = ref([9, 9, 10]);           // custom-size inputs
     const win = ref({ w: window.innerWidth, h: window.innerHeight });
-    const settingsMsg = ref('');
+    const settingsMsg = ref(''), slotMsg = ref('');
     let lastLongPress = 0, pressTimer;
 
     const vm = new ViewModel(storage, {
@@ -54,6 +54,9 @@ createApp({
     const pressStart = (e, r, c) => { if (e.pointerType === 'touch') pressTimer = setTimeout(() => { lastLongPress = Date.now(); vm.flag(r, c); }, 450); };
     const pressEnd = () => clearTimeout(pressTimer);
 
+    const saveSlot = n => { vm.saveSlot(n); slotMsg.value = `Saved to slot ${n}`; };
+    const loadSlot = n => { slotMsg.value = vm.loadSlot(n) ? `Loaded slot ${n}` : `Could not load slot ${n}`; };
+    const deleteSlot = n => { vm.deleteSlot(n); slotMsg.value = `Deleted slot ${n}`; };
     const downloadSettings = () => { SettingsFile.download(vm.exportSettings()); settingsMsg.value = 'Downloaded minesweeper-settings.json'; };
     const downloadGame = () => { SettingsFile.download(vm.exportGame(), 'minesweeper-game.json'); settingsMsg.value = 'Downloaded minesweeper-game.json'; };
     const uploadFile = async e => {
@@ -77,7 +80,7 @@ createApp({
       });
     });
 
-    return { vm, s, time, custom, px, items, statusText, labels: ACTION_LABELS, keyName: k => (k === ' ' ? 'Space' : k),
+    return { vm, s, time, custom, px, items, statusText, labels: ACTION_LABELS, levelNames: LEVEL_NAMES, slotMsg, saveSlot, loadSlot, deleteSlot, keyName: k => (k === ' ' ? 'Space' : k),
              settingsMsg, newGame, cellClick, cellFlag, pressStart, pressEnd, downloadSettings, downloadGame, uploadFile };
   },
 }).mount('#app');
