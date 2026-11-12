@@ -1,44 +1,8 @@
-// View (MVVM): draws vm.state() and forwards DOM events to ViewModel commands. No game rules here.
+// View (MVVM), plain JavaScript: draws vm.state() and forwards DOM events to ViewModel commands. No game rules here.
 const $ = id => document.getElementById(id);
 const boardEl = $('board'), levelEl = $('level'), customEl = $('custom');
 let lastLongPress = 0;
-let prev = null; // last drawn counts, used to pick a sound; null = no sound (new game)
-
-// Sound: tiny Web Audio beeps, no audio files. Browsers only allow audio after a user gesture, which clicks/keys are.
-// Each sound has its own relative volume (vol); the master volume and mute come from the ViewModel (and are saved).
-const SOUNDS = {
-  reveal: { notes: [[600, 40]], type: 'square', vol: 0.5 },
-  flag:   { notes: [[420, 50]], type: 'square', vol: 0.6 },
-  undo:   { notes: [[300, 60]], type: 'square', vol: 0.4 },
-  boom:   { notes: [[90, 450]], type: 'sawtooth', vol: 1 },
-  win:    { notes: [[523, 150], [659, 150], [784, 150]], type: 'square', vol: 0.8 },
-};
-let audioCtx;
-function play(name, s) {
-  if (s.muted) return;
-  const snd = SOUNDS[name];
-  try {
-    audioCtx = audioCtx || new AudioContext();
-    let t = audioCtx.currentTime;
-    for (const [freq, ms] of snd.notes) {
-      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-      o.type = snd.type; o.frequency.value = freq; g.gain.value = 0.2 * s.volume * snd.vol;
-      o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t + ms / 1000);
-      t += ms / 1000;
-    }
-  } catch (e) {}
-}
-function playSound(s) {
-  const flat = s.cells.flat(), open = flat.filter(c => c.revealed).length, flags = flat.filter(c => c.flagged).length;
-  if (prev) {
-    if (s.status === 'lost' && prev.status !== 'lost') play('boom', s);
-    else if (s.status === 'won' && prev.status !== 'won') play('win', s);
-    else if (open > prev.open) play('reveal', s);
-    else if (open < prev.open) play('undo', s); // undo of a reveal
-    else if (flags !== prev.flags) play('flag', s);
-  }
-  prev = { open, flags, status: s.status };
-}
+const keyName = k => (k === ' ' ? 'Space' : k);
 
 // localStorage can throw (private mode); fall back to "nothing stored".
 const storage = {
@@ -46,20 +10,14 @@ const storage = {
   setItem: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} },
 };
 
-// Declared before the ViewModel exists: its constructor triggers the first render.
-let rebinding = null; // action waiting for its new key, or null
-const keyName = k => (k === ' ' ? 'Space' : k);
-const LABELS = { up: 'Cursor up', down: 'Cursor down', left: 'Cursor left', right: 'Cursor right', reveal: 'Reveal / chord',
-                 flag: 'Flag', chord: 'Chord only', mute: 'Mute', undo: 'Undo', redo: 'Redo', newGame: 'New game' };
-
 const vm = new ViewModel(storage, { onChange: render, onTick: t => { $('time').textContent = t; } });
 
-function newGame() { prev = null; vm.start(levelEl.value, [$('rows').value, $('cols').value, $('minesIn').value]); }
+function newGame() { vm.start(levelEl.value, [$('rows').value, $('cols').value, $('minesIn').value]); }
 
 function render(s) {
-  playSound(s);
+  Sound.onState(s);
   levelEl.value = s.level; // restored from saved settings on load
-  renderKeys(s.keys);
+  renderKeys(s);
   customEl.hidden = s.level !== 'custom';
   [$('rows').value, $('cols').value, $('minesIn').value] = s.custom; // show clamped values
   boardEl.style.setProperty('--cols', s.cols);
@@ -99,49 +57,47 @@ function render(s) {
 
 // Cell size fits the board to the window; recomputed on resize without rebuilding the grid.
 function resize(s = vm.state()) {
-  const px = cellSize(s.rows, s.cols, window.innerWidth - 32, window.innerHeight - 200);
-  boardEl.style.setProperty('--s', px + 'px');
+  boardEl.style.setProperty('--s', cellSize(s.rows, s.cols, window.innerWidth - 32, window.innerHeight - 200) + 'px');
 }
 window.onresize = () => resize();
 
-// Keyboard play. Keys map to actions through the ViewModel's (rebindable, saved) key map.
-function renderKeys(keys) {
+// Key panel: each action lists its keys (click a key to remove it, "+ add key" to add one).
+function renderKeys(s) {
   $('keylist').innerHTML = '';
-  for (const a of Object.keys(LABELS)) {
-    const b = document.createElement('button');
-    b.textContent = LABELS[a] + ': ' + (rebinding === a ? 'press a key...' : keys[a].map(keyName).join(' / '));
-    b.onclick = () => { rebinding = a; $('keymsg').textContent = 'Esc cancels'; renderKeys(vm.state().keys); };
-    $('keylist').appendChild(b);
+  for (const a of Object.keys(ACTION_LABELS)) {
+    const row = document.createElement('div');
+    row.className = 'keyrow';
+    row.append(ACTION_LABELS[a] + ':');
+    for (const k of s.keys[a]) {
+      const chip = document.createElement('button');
+      chip.textContent = keyName(k) + (s.keys[a].length > 1 ? ' ✕' : '');
+      chip.title = 'Remove this key';
+      chip.disabled = s.keys[a].length < 2; // an action keeps at least one key
+      chip.onclick = () => vm.removeKey(a, k);
+      row.append(chip);
+    }
+    const add = document.createElement('button');
+    add.textContent = s.rebinding === a ? 'press a key...' : '+ add key';
+    add.onclick = () => vm.startRebind(a);
+    row.append(add);
+    $('keylist').append(row);
   }
+  $('keymsg').textContent = s.keyMessage;
 }
-$('resetkeys').onclick = () => { rebinding = null; $('keymsg').textContent = ''; vm.resetKeys(); };
+$('resetkeys').onclick = () => vm.resetKeys();
 
+// Settings export / import (JSON in the text box).
+$('export').onclick = () => { $('settingsText').value = vm.exportSettings(); $('settingsMsg').textContent = 'Copy this text to keep it'; };
+$('import').onclick = () => {
+  const r = vm.importSettings($('settingsText').value);
+  $('settingsMsg').textContent = r.ok ? 'Imported' : 'Not imported: ' + r.error;
+};
+
+// Keyboard: the ViewModel decides what a key means. Skip browser shortcuts and typing in fields.
 document.onkeydown = e => {
-  if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
-  if (rebinding) { // the next key press becomes the binding
-    e.preventDefault();
-    if (e.key !== 'Escape') {
-      const ok = vm.rebind(rebinding, e.key);
-      $('keymsg').textContent = ok ? '' : keyName(e.key) + ' is reserved or already used';
-      if (!ok) return; // stay in rebinding mode so another key can be tried
-    } else $('keymsg').textContent = '';
-    rebinding = null;
-    renderKeys(vm.state().keys);
-    return;
-  }
-  // Ignored while typing in form fields or with shortcuts like Ctrl+R.
-  if (e.target.matches?.('input[type=number], input[type=range], select') || e.ctrlKey || e.metaKey || e.altKey) return;
-  const { r, c } = vm.state().cursor;
-  const actions = {
-    up: () => vm.move(-1, 0), down: () => vm.move(1, 0), left: () => vm.move(0, -1), right: () => vm.move(0, 1),
-    reveal: () => vm.click(r, c), flag: () => vm.flag(r, c), chord: () => vm.chord(r, c),
-    mute: () => vm.setMuted(!vm.state().muted), undo: () => vm.undo(), redo: () => vm.redo(), newGame: newGame,
-  };
-  const act = actions[vm.actionFor(e.key)];
-  if (!act) return;
-  e.preventDefault();
-  document.activeElement.blur(); // so Space/Enter doesn't also press a focused toolbar button
-  act();
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (!vm.rebinding && e.target.matches?.('input[type=number], input[type=range], textarea, select')) return;
+  if (vm.pressKey(e.key)) { e.preventDefault(); document.activeElement.blur?.(); } // blur: Space/Enter must not also press a focused button
 };
 
 setInterval(() => vm.tick(), 1000);

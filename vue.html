@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Minesweeper (Vue)</title>
+<link rel="stylesheet" href="style.css"></head>
+<body>
+<!-- Same game and ViewModel as index.html; only the view is Vue 3 (loaded from a CDN, so this page needs internet). -->
+<div id="app" v-cloak>
+  <h1>Minesweeper <small>(Vue view)</small></h1>
+  <p><small><a href="index.html">Plain JavaScript version</a></small></p>
+  <div id="bar">
+    <select :value="s.level" @change="newGame($event.target.value)">
+      <option value="beginner">Beginner 9x9</option><option value="intermediate">Intermediate 16x16</option>
+      <option value="expert">Expert 16x30</option><option value="custom">Custom</option>
+    </select>
+    <span v-if="s.level === 'custom'" id="custom">
+      <input type="number" min="5" max="30" v-model.number="custom[0]" title="rows 5-30"> x
+      <input type="number" min="5" max="40" v-model.number="custom[1]" title="columns 5-40"> mines
+      <input type="number" min="1" v-model.number="custom[2]" title="mines">
+    </span>
+    <span>Mines: <b>{{ s.minesLeft }}</b></span>
+    <span>Time: <b>{{ time }}</b></span>
+    <span>Best: <b>{{ s.best ? s.best + 's' : '-' }}</b></span>
+    <button @click="newGame(s.level)">New Game</button>
+    <button :disabled="!s.canUndo" @click="vm.undo()">Undo</button>
+    <button :disabled="!s.canRedo" @click="vm.redo()">Redo</button>
+    <label><input type="checkbox" :checked="!s.muted" @change="vm.setMuted(!$event.target.checked)"> Sound</label>
+    <input type="range" min="0" max="1" step="0.1" :value="s.volume" @change="vm.setVolume($event.target.value)" title="volume">
+  </div>
+  <div>{{ statusText }}</div>
+  <p><small>Touch: long-press to flag. Keyboard keys are listed (and rebindable) below.</small></p>
+
+  <details>
+    <summary>Keys</summary>
+    <div v-for="(label, a) in labels" :key="a" class="keyrow">
+      {{ label }}:
+      <button v-for="k in s.keys[a]" :key="k" :disabled="s.keys[a].length < 2" title="Remove this key" @click="vm.removeKey(a, k)">
+        {{ keyName(k) }}<span v-if="s.keys[a].length > 1"> ✕</span>
+      </button>
+      <button @click="vm.startRebind(a)">{{ s.rebinding === a ? 'press a key...' : '+ add key' }}</button>
+    </div>
+    <button @click="vm.resetKeys()">Reset keys</button> <span>{{ s.keyMessage }}</span>
+  </details>
+  <details>
+    <summary>Settings export / import</summary>
+    <textarea v-model="settingsText" spellcheck="false" placeholder="Click Export, or paste exported settings here and click Import"></textarea><br>
+    <button @click="exportSettings">Export</button> <button @click="importSettings">Import</button> <span>{{ settingsMsg }}</span>
+  </details><br>
+
+  <div id="board" :style="{ '--cols': s.cols, '--s': px + 'px' }">
+    <button v-for="it in items" :key="it.r * 1000 + it.c" :class="it.cls" @click="cellClick(it.r, it.c)"
+            @contextmenu.prevent="cellFlag(it.r, it.c)" @pointerdown="pressStart($event, it.r, it.c)"
+            @pointerup="pressEnd" @pointerleave="pressEnd" @pointercancel="pressEnd">{{ it.text }}</button>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.5.13/vue.global.prod.min.js"></script>
+<script src="src/game.js"></script>
+<script src="src/viewmodel.js"></script>
+<script src="src/sound.js"></script>
+<script src="src/vue-app.js"></script>
+</body></html>

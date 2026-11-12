@@ -1,18 +1,9 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Minesweeper</title>
-<style>
-  body { font-family: sans-serif; text-align: center; background: #eee; }
-  #bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; align-items: center; margin: 12px; }
-  #board { display: inline-grid; grid-template-columns: repeat(var(--cols), var(--s)); gap: 2px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
-  #board button { width: var(--s); height: var(--s); font-size: calc(var(--s) / 2); font-weight: bold; padding: 0; cursor: pointer; }
-  #custom input { width: 52px; }
-  #board button.open { background: #ddd; cursor: default; }
-  #board button.boom { background: #f66; }
-  #board button.cursor { outline: 3px solid #08f; outline-offset: -3px; }
-  .n1{color:#00f}.n2{color:#080}.n3{color:#f00}.n4{color:#008}.n5{color:#800}.n6{color:#088}.n7{color:#000}.n8{color:#666}
-</style></head>
+<link rel="stylesheet" href="style.css"></head>
 <body>
   <h1>Minesweeper</h1>
+  <p><small>Plain JavaScript view. <a href="vue.html">Vue version</a> (same game, same ViewModel).</small></p>
   <div id="bar">
     <select id="level"><option value="beginner">Beginner 9x9</option><option value="intermediate">Intermediate 16x16</option><option value="expert">Expert 16x30</option><option value="custom">Custom</option></select>
     <span id="custom" hidden>
@@ -27,9 +18,14 @@
     <label><input type="checkbox" id="sound"> Sound</label> <input type="range" id="volume" min="0" max="1" step="0.1" title="volume">
   </div>
   <div id="status"></div><p><small>Touch: long-press to flag. Keyboard keys are listed (and rebindable) below.</small></p>
-  <details id="keys"><summary>Keys</summary><div id="keylist"></div><button id="resetkeys">Reset keys</button> <span id="keymsg"></span></details><br>
+  <details id="keys"><summary>Keys</summary><div id="keylist"></div><button id="resetkeys">Reset keys</button> <span id="keymsg"></span></details>
+  <details id="settings"><summary>Settings export / import</summary>
+    <textarea id="settingsText" spellcheck="false" placeholder="Click Export, or paste exported settings here and click Import"></textarea><br>
+    <button id="export">Export</button> <button id="import">Import</button> <span id="settingsMsg"></span>
+  </details><br>
   <div id="board"></div>
   <script src="src/game.js"></script>
   <script src="src/viewmodel.js"></script>
+  <script src="src/sound.js"></script>
   <script src="src/app.js"></script>
 </body></html>

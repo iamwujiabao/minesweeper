@@ -121,3 +121,85 @@ test('key map: defaults, rebinding, conflicts, persistence, reset', () => {
   vm.resetKeys();
   assert.strictEqual(new ViewModel(st).actionFor('f'), 'flag');
 });
+
+test('new game increments gameId; undo does not', () => {
+  const vm = new ViewModel(fakeStorage()), id = vm.state().gameId;
+  vm.click(4, 4); vm.undo();
+  assert.strictEqual(vm.state().gameId, id);
+  vm.start();
+  assert.strictEqual(vm.state().gameId, id + 1);
+});
+
+test('pressKey runs actions at the cursor; unknown and modifier keys are not used', () => {
+  const vm = new ViewModel(fakeStorage());
+  assert.strictEqual(vm.pressKey('ArrowRight'), true);
+  assert.deepStrictEqual(vm.state().cursor, { r: 0, c: 1 });
+  assert.strictEqual(vm.pressKey('f'), true);
+  assert.strictEqual(vm.game.cells[0][1].flagged, true);
+  assert.strictEqual(vm.pressKey('u'), true);
+  assert.strictEqual(vm.game.cells[0][1].flagged, false);
+  assert.strictEqual(vm.pressKey('Enter'), true);
+  assert.strictEqual(vm.game.canUndo(), true);
+  assert.strictEqual(vm.pressKey('q'), false);
+  assert.strictEqual(vm.pressKey('Shift'), false);
+  vm.pressKey('n'); assert.strictEqual(vm.game.canUndo(), false); // new game
+});
+
+test('multiple keys per action: add via rebinding mode, remove, last key protected, saved', () => {
+  const st = fakeStorage(), vm = new ViewModel(st);
+  vm.startRebind('flag');
+  assert.strictEqual(vm.state().rebinding, 'flag');
+  assert.strictEqual(vm.pressKey('x'), true);            // becomes an extra flag key
+  assert.deepStrictEqual(vm.keys.flag, ['f', 'x']);
+  assert.strictEqual(vm.state().rebinding, null);
+  assert.strictEqual(vm.actionFor('f'), 'flag'); assert.strictEqual(vm.actionFor('x'), 'flag');
+
+  vm.startRebind('chord');
+  vm.pressKey('x');                                        // taken by flag: keep waiting, with a message
+  assert.strictEqual(vm.state().rebinding, 'chord');
+  assert.match(vm.state().keyMessage, /already used/);
+  vm.pressKey('Escape');                                   // cancel
+  assert.strictEqual(vm.state().rebinding, null);
+
+  assert.strictEqual(vm.removeKey('flag', 'f'), true);
+  assert.strictEqual(vm.removeKey('flag', 'x'), false);    // it is now the only key
+  assert.strictEqual(vm.removeKey('flag', 'zzz'), false);
+  assert.deepStrictEqual(new ViewModel(st).keys.flag, ['x']);
+  assert.strictEqual(vm.addKey('flag', 'Tab'), false);     // reserved
+});
+
+test('export then import restores settings in a fresh profile', () => {
+  const a = new ViewModel(fakeStorage());
+  a.start('custom', [8, 12, 15]); a.addKey('flag', 'x'); a.setMuted(true); a.setVolume(0.2);
+  const text = a.exportSettings();
+  const st = fakeStorage(), b = new ViewModel(st);
+  assert.deepStrictEqual(b.importSettings(text), { ok: true });
+  assert.deepStrictEqual([b.level, b.custom, b.keys.flag, b.muted, b.volume], ['custom', [8, 12, 15], ['f', 'x'], true, 0.2]);
+  assert.strictEqual(b.state().cols, 12);
+  const c = new ViewModel(st); // and it was saved
+  assert.deepStrictEqual([c.level, c.keys.flag, c.muted, c.volume], ['custom', ['f', 'x'], true, 0.2]);
+});
+
+test('invalid imports are rejected and change nothing', () => {
+  const vm = new ViewModel(fakeStorage());
+  const before = vm.exportSettings();
+  const bad = [
+    'nope', '[]', '{"version":2}', '{"version":1,"level":"constructor"}', '{"version":1,"custom":[1,2]}',
+    '{"version":1,"volume":7}', '{"version":1,"muted":"yes"}',
+    '{"version":1,"keys":{"flag":["x"],"chord":["x"]}}',  // duplicate key
+    '{"version":1,"keys":{"flag":[]}}',                      // empty list
+    '{"version":1,"keys":{"flag":["Escape"]}}',              // reserved
+    '{"version":1,"muted":true,"volume":0.1,"keys":{"flag":[]}}', // one bad field spoils the rest
+  ];
+  for (const text of bad) {
+    const r = vm.importSettings(text);
+    assert.strictEqual(r.ok, false, text);
+    assert.ok(r.error, text);
+  }
+  assert.strictEqual(vm.exportSettings(), before);
+});
+
+test('a saved level like "constructor" falls back to beginner', () => {
+  const st = fakeStorage(); st.setItem('ms-level', 'constructor');
+  assert.strictEqual(new ViewModel(st).level, 'beginner');
+});
