@@ -28,6 +28,22 @@ A loss: the mine that was hit is outlined, the wrong flag has a cross, everythin
 
 Replay: the finished game is stepped through move by move (or played automatically).
 
+![Probability hint](docs/screenshots/09-probability-hint.png)
+
+Probability hint: when nothing is certain, Hint shows every hidden cell's chance of a mine (0 percent and 100 percent cells are certain).
+
+![Undo timeline](docs/screenshots/10-undo-timeline.png)
+
+The undo timeline under the board: the slider jumps to any move; the label says which move it is. Checkpoints sit beside it.
+
+![Versus the computer](docs/screenshots/11-versus-computer.png)
+
+Versus the computer: the scores are in the status line, and the computer answers your move on the next clock tick.
+
+![Shop](docs/screenshots/12-shop.png)
+
+The shop in the Stats and saves panel: coins from wins buy themes and power-ups.
+
 ![Dark theme](docs/screenshots/07-dark-theme.png)
 
 The dark theme. The Auto theme picks it when the device prefers dark.
@@ -308,7 +324,13 @@ Results: 192 of 192 logic tests pass. The browser tests pass in Chrome, WebKit, 
 10. Replay: finish a game (a quick loss is fine), then press Replay. Step forward and back, then press Play for the automatic replay, then Close replay.
 11. Daily challenge: New game..., Today's daily challenge. The status line shows the date. Open the share link from the side panel in another tab: the same board appears.
 12. Appearance and keys: switch the theme to Dark; open Settings, Controls and add a second key to Flag; press the ? button for the shortcut list.
-13. Tests: run node --test in a terminal and show the passing count.
+13. Probability hint: start a new game and play until Hint says that no cell is certain. The numbers on the board are each cell's chance of a mine. Open Assists... and press Best guess: the safest cell is outlined.
+14. Versus computer: New game..., Mode Versus the computer. Make a move; on the next clock tick the computer plays a safe cell or its best guess. Compare the scores in the status line.
+15. Undo timeline: flag a few cells, then drag the Timeline slider back and forward. Set checkpoint, play on, press Back to checkpoint.
+16. Survival and puzzles: Mode Survival, clear the board and see a bigger one start with the same lives. Then Mode Puzzle, pick a puzzle and solve it within the move limit.
+17. Shop and missions: win a game (the mission line is under the board) to earn coins, open Stats and saves, buy a theme or a power-up, and choose the theme in the header.
+18. Ghost race and weekly challenge: after a win press Race my best to play the same board next to a ghost of your win. Then New game..., This week's challenge for this week's fixed board and mode.
+19. Tests: run node --test in a terminal and show the passing count.
 
 ## 9. Git workflow
 
@@ -321,7 +343,9 @@ The project was built in small steps, each a real commit made when that step wor
 | Framework experiments | cefb26a, df42c87, 0ea5c44, a74fc9a | A Vue view, then a React view driven by the same ViewModel; settings and game files; saved-game slots; Playwright tests |
 | Large feature rounds | 3d108f2, 38ce4dc | Question marks, power-ups, hints, modes, hex and wrap-around boards, daily challenge, replay, themes; then the interface redesign with accessibility |
 | Back to plain scripts | 6916121 | Removed Vue, React and the build step because the assignment is plain HTML, CSS and JavaScript |
-| Patterns and documents | the commit that added this report | Command, Strategy, Memento and Observer made explicit; the ViewModel split into small classes; the stronger solver; the autosave cap; this report, the README and the GitHub Pages workflow |
+| Patterns and documents | 4dd5248 | Command, Strategy, Memento and Observer made explicit; the ViewModel split into small classes; the stronger solver; the autosave cap; this report, the README and the GitHub Pages workflow |
+| Workflows | cb49365 | The GitHub Actions workflows: newer action versions, Node 22, a pinned runner |
+| Smarter help and progression | 3f5be76 | Probability hints, best guess, auto-flag, undo timeline and checkpoints, five new modes, more power-ups, coins and a shop, stars, missions, weekly challenge, ghost races |
 
 The Vue and React views are still in the history: git checkout extras-vue-react-views shows them, and the commit message of 6916121 explains why they were removed.
 
@@ -330,4 +354,3 @@ The Vue and React views are still in the history: git checkout extras-vue-react-
 - Run the Firefox browser tests on a machine where Firefox can start.
 - Test on a real phone, and bring the board higher up on small screens.
 - Name the saved-game slots, and allow more than three.
-- A probability-based solver for the boards that need a guess.

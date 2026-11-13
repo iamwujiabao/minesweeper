@@ -147,7 +147,7 @@ function render(s) {
   $('cp-set').disabled = !live;
   $('cp-back').disabled = !s.checkpoint.canReturn;
   $('cp-back').textContent = s.checkpoint.set ? 'Back to checkpoint' : 'No checkpoint';
-  $('race-ghost').hidden = !s.canRace || s.status === 'playing' && s.timeline.total === 0 && !s.ghost;
+  $('race-ghost').hidden = !s.canRace || (s.status === 'playing' && !s.ghost);   // offered once a game is over (or while racing)
   $('mission').hidden = !s.mission; if (s.mission) $('mission').textContent = 'Mission: ' + s.mission.text;
   $('ghostbar').hidden = !s.ghost;
   if (s.ghost) {
