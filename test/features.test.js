@@ -314,11 +314,16 @@ test('shifting mines mode shows when the next shift is due', () => {
 // ---- assists in the ViewModel ----
 test('hint with nothing certain shows every cell\'s mine chance and counts as a hint', () => {
   let found = 0;
-  for (let seed = 1; seed <= 40 && !found; seed++) {
+  for (let seed = 1; seed <= 80 && !found; seed++) {
     const vm = make({}, seed); vm.click(4, 4);
+    const sure = () => { const v = vm.game._visible(), p = Solver.probabilities(vm.game.nb, v.revealed, v.num, v.known, 10);
+      return p.findIndex((x, k) => !v.revealed[k] && x >= 0 && x < 1e-9) >= 0 || Solver.hint(vm.game.nb, v.revealed, v.num, v.known, 10) >= 0; };
+    for (let k = 0; k < 60 && vm.game.status === 'playing' && sure(); k++) {          // play the certain cells until only guesses are left
+      const v = vm.game._visible(), p = Solver.probabilities(vm.game.nb, v.revealed, v.num, v.known, 10);
+      let i = Solver.hint(vm.game.nb, v.revealed, v.num, v.known, 10); if (i < 0) i = p.findIndex((x, q) => !v.revealed[q] && x >= 0 && x < 1e-9);
+      vm.game.reveal(Math.floor(i / 9), i % 9);
+    }
     if (vm.game.status !== 'playing') continue;
-    const v = vm.game._visible();
-    if (Solver.hint(vm.game.nb, v.revealed, v.num, v.known, 10) >= 0) continue;
     found = seed;
     vm.hint();
     assert.ok(vm.state().grid.flat().some(c => /^\d+%$/.test(c.text)));
@@ -615,4 +620,39 @@ test('all the new achievements exist and have rules', () => {
   assert.ok(t('puzzle-master')({ puzzlesSolved: 5 })); assert.ok(!t('puzzle-master')({ puzzlesSolved: 4 }));
   assert.ok(t('survivor-5')({ survivalStage: 5 })); assert.ok(!t('survivor-5')({ survivalStage: 4 }));
   assert.ok(t('beat-the-ai')({ vsAiWin: true })); assert.ok(!t('beat-the-ai')({ vsAiWin: false }));
+});
+
+test('exact chances: a 0% cell is never a mine and a 100% cell always is; Hint and Auto-flag use them when the logic finds nothing', () => {
+  let hintsFromChance = 0, flagsFromChance = 0;
+  for (const topology of ['square', 'hex', 'torus'])
+    for (let seed = 1; seed <= 60; seed++) {
+      const g = new Game(9, 9, 10, mulberry32(seed), { topology });
+      g.reveal(4, 4);
+      for (let step = 0; step < 40 && g.status === 'playing'; step++) {
+        const v = g._visible(), logic = Solver.hint(g.nb, v.revealed, v.num, v.known, 10);
+        const p = Solver.probabilities(g.nb, v.revealed, v.num, v.known, 10);
+        p.forEach((x, i) => { if (v.revealed[i] || x < 0) return; const m = g.cells[Math.floor(i / 9)][i % 9].mine;
+          if (x < 1e-9) assert.ok(!m, `${topology} seed ${seed}: a 0% cell is a mine`);
+          if (x > 1 - 1e-9) assert.ok(m, `${topology} seed ${seed}: a 100% cell is safe`); });
+        const proven = g.provenMines();
+        for (const { r, c } of proven) assert.ok(g.cells[r][c].mine);
+        const h = g.hint();
+        if (!h) break;
+        assert.ok(!g.cells[h.r][h.c].mine, `${topology} seed ${seed}: hint on a mine`);
+        if (logic < 0) hintsFromChance++;
+        g.reveal(h.r, h.c);
+      }
+    }
+  assert.ok(hintsFromChance > 0, 'the exact count never found a cell the logic missed');
+  for (let seed = 1; seed <= 80; seed++) {
+    const g = new Game(16, 16, 40, mulberry32(seed)); g.reveal(8, 8);
+    for (let step = 0; step < 60 && g.status === 'playing'; step++) {
+      const v = g._visible(), d = Solver.deduce(g.nb, v.revealed, v.num, v.known, 40).mine;
+      const extra = g.provenMines().filter(({ r, c }) => !d[r * 16 + c]);
+      flagsFromChance += extra.length;
+      for (const { r, c } of extra) assert.ok(g.cells[r][c].mine);
+      const h = g.hint(); if (!h) break; g.reveal(h.r, h.c);
+    }
+  }
+  assert.ok(flagsFromChance > 0, 'auto-flag never used a 100% cell');
 });

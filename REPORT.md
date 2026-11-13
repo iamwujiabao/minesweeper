@@ -30,7 +30,7 @@ Replay: the finished game is stepped through move by move (or played automatical
 
 ![Probability hint](docs/screenshots/09-probability-hint.png)
 
-Probability hint: when nothing is certain, Hint shows every hidden cell's chance of a mine (0 percent and 100 percent cells are certain).
+Probability hint: Hint first uses the logic rules, then any cell the exact count proves safe (0 percent). Only when every cell is really a guess does it show each hidden cell's chance of a mine, as here: the 100 percent cells are mines and the 50 percent cells are true coin flips.
 
 ![Undo timeline](docs/screenshots/10-undo-timeline.png)
 
@@ -72,7 +72,7 @@ Assumptions:
 Extra features, all built on the same model: power-ups (a scanner that counts mines in a 3x3 area and a shield that survives one mine), hints, hover help on numbers, dimmed finished numbers, Lives / Limited undo / Undo costs 10 s / Time attack / Zen / Two players modes, no-guess boards, a daily challenge and share links, statistics with 3BV and 3BV/s, 24 achievement badges, replay, five themes (two from the shop), keyboard play with rebindable keys, saved-game slots, and download and upload of settings and games.
 
 Smarter help, built on the solver (src/solver.js):
-- Probability hint: when no move is certain, Hint shows every hidden cell's mine chance in percent (exact, from the frontier and the total mine count). Best guess highlights the lowest-chance cell. Both count as hints.
+- Probability hint: Hint uses the logic rules and then the exact count (a 0 percent cell counts as certainly safe, and Auto-flag also flags 100 percent cells). When no move is certain, Hint shows every hidden cell's mine chance in percent (exact, from the frontier and the total mine count). Best guess highlights the lowest-chance cell. Both count as hints.
 - Auto-flag flags every mine the logic proves, as one undoable move. It counts as a hint. Wrong-flag check marks flags on safe cells with a cross; it works once per game and costs 15 seconds.
 - Hints, best guess and auto-flag are disabled in Puzzle and Hidden counter modes. A game that used any help is not a best-time record.
 
@@ -288,7 +288,7 @@ Logic tests (Node's built-in runner, no install):
 
     node --test
 
-There are 192 tests. They cover mine placement, numbers, flagging, flood-fill, win and loss, and undo of the first move, a large flood-fill, a flag, with an empty history, after a loss and after a win; redo; chording; all game modes; hex and wrap-around boards; seeds; hints (never on a mine over many random boards on every shape, with power-ups); no-guess boards finished by hints alone; the solver rules on small hand-made boards; 3BV; replay frames; saving, loading and many kinds of tampered data; the autosave cap; the pattern classes one by one (topology, commands, mementos, modes, options, key bindings, stats, save manager, the observer); the exact probabilities (checked against brute force), assists, power-up commands, earned undos, shifting mines with undo and replay, the computer opponent, survival, puzzles (each one is checked to be solvable by local logic inside its move limit), hidden counter, timeline and checkpoints, shop and coins, stars, missions, the weekly challenge, ghost races, and the colour contrast of every theme.
+There are 193 tests. They cover mine placement, numbers, flagging, flood-fill, win and loss, and undo of the first move, a large flood-fill, a flag, with an empty history, after a loss and after a win; redo; chording; all game modes; hex and wrap-around boards; seeds; hints (never on a mine over many random boards on every shape, with power-ups); no-guess boards finished by hints alone; the solver rules on small hand-made boards; 3BV; replay frames; saving, loading and many kinds of tampered data; the autosave cap; the pattern classes one by one (topology, commands, mementos, modes, options, key bindings, stats, save manager, the observer); the exact probabilities (checked against brute force), assists, power-up commands, earned undos, shifting mines with undo and replay, the computer opponent, survival, puzzles (each one is checked to be solvable by local logic inside its move limit), hidden counter, timeline and checkpoints, shop and coins, stars, missions, the weekly challenge, ghost races, and the colour contrast of every theme.
 
 Browser tests (optional, Playwright):
 
@@ -298,7 +298,7 @@ Browser tests (optional, Playwright):
 
 61 checks run in five projects: desktop Chrome, Firefox, Safari (WebKit), an Android phone and an iPhone. They drive the real page: safe first click and flood-fill, flags, undo and redo, loss and win, chording, keyboard play, key rebinding, saved settings, saved games and slots, the best-times table, hints, modes, hex and wrap-around boards, replay, the daily challenge, share links, themes, accessibility labels and focus, and the layout on a phone. Pages are opened with a seed so the test knows where the mines are. Deliberate bugs in the chord rule, the hex and wrap-around neighbour rules, number dimming, board rebuilding, reduced motion and arrow-key focus each made the matching test fail, then the code was restored.
 
-Results: 192 of 192 logic tests pass. The browser tests pass in Chrome, WebKit, the Android phone and the iPhone profiles. Firefox is configured but was not run: it would not start inside the development sandbox, so its results are unknown.
+Results: 193 of 193 logic tests pass. The browser tests pass in Chrome, WebKit, the Android phone and the iPhone profiles. Firefox is configured but was not run: it would not start inside the development sandbox, so its results are unknown.
 
 ## 7. Limitations
 

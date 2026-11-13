@@ -5,7 +5,6 @@ const { spawn } = require('child_process');
 const path = require('path');
 const { Game } = require('../src/game.js');
 const { mulberry32 } = require('../src/rng.js');
-const Solver = require('../src/solver.js');
 
 const out = path.join(__dirname, '..', 'docs', 'screenshots');
 const PORT = 4174, base = `http://127.0.0.1:${PORT}/index.html?seed=11`;
@@ -19,17 +18,19 @@ function minesOf(opts = {}) {
   return { mines: cells.filter(m => m.x.mine && !m.x.revealed), safe: cells.filter(m => !m.x.mine && !m.x.revealed) };
 }
 
-// Cells to click (after the first click at 4,4) until logic alone cannot go further: there the hint shows mine chances.
+// Cells to click (after the first click at 4,4) until Hint finds nothing certain, not even by the exact count: there the hint shows chances.
 function stuckClicks(seed) {
   const g = new Game(9, 9, 10, mulberry32(seed)); g.reveal(4, 4);
   const clicks = [];
   for (;;) {
-    const v = g._visible(), { safe } = Solver.deduce(g.nb, v.revealed, v.num, v.known, 10);
-    const i = safe.findIndex((x, k) => x && !v.revealed[k]);
-    if (i < 0 || g.status !== 'playing') return clicks;
-    clicks.push([Math.floor(i / 9), i % 9]); g.reveal(Math.floor(i / 9), i % 9);
+    const h = g.status === 'playing' ? g.hint() : null;
+    if (!h) return { clicks, stuck: g.status === 'playing' };
+    clicks.push([h.r, h.c]); g.reveal(h.r, h.c);
   }
 }
+const stuckSeed = () => { for (let seed = 1; ; seed++) if (stuckClicks(seed).stuck) return seed; };
+
+const STUCK = stuckSeed();
 
 (async () => {
   const server = spawn('node', [path.join(__dirname, 'serve.js')], { env: { ...process.env, PORT: String(PORT) } });
@@ -90,9 +91,9 @@ function stuckClicks(seed) {
 
   await shot('09-probability-hint', desktop, null, async ({ page, cell, dismissTip }) => {
     await dismissTip(); await cell(4, 4).click(); await dismissTip();
-    for (const [r, c] of stuckClicks(36)) if (!(await cell(r, c).evaluate(el => el.classList.contains('open')))) await cell(r, c).click();
+    for (const [r, c] of stuckClicks(STUCK).clicks) if (!(await cell(r, c).evaluate(el => el.classList.contains('open')))) await cell(r, c).click();
     await page.click('#hint');
-  }, 36);
+  }, STUCK);
 
   await shot('10-undo-timeline', desktop, null, async ({ page, cell, dismissTip }) => {
     await dismissTip(); await cell(4, 4).click(); await dismissTip();

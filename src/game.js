@@ -6,6 +6,8 @@
   const Rng = dep('./rng.js', 'Rng'), Solver = dep('./solver.js', 'Solver'), Topology = dep('./topology.js', 'Topology');
   const Commands = dep('./commands.js', 'Commands');
 
+  const EPS = 1e-9;   // a chance this close to 0 or 1 is exact (floating point only)
+
   class Game {
     // opts (all optional):
     //  topology 'square' | 'hex' | 'torus'   board shape (how cells touch)
@@ -251,7 +253,9 @@
     // Returns {r, c} or null. Not a move: it does not change the board, only counts as a hint used.
     hint() {
       if (this.status !== 'playing' || !this.minesPlaced) return null;
-      const v = this._visible(), i = Solver.hint(this.nb, v.revealed, v.num, v.known, this.mineCount);
+      const v = this._visible();
+      let i = Solver.hint(this.nb, v.revealed, v.num, v.known, this.mineCount);
+      if (i < 0) i = this._byChance(v, x => x < EPS);      // the logic rules found nothing: the exact count may still prove a cell safe
       if (i < 0) return null;
       this.hintsUsed++;
       return this._coords(i);
@@ -260,11 +264,17 @@
     // Cells whose chance of being a mine is 1 according to the solver, not yet flagged: [{r, c}].
     provenMines() {
       const v = this._visible(), { mine } = Solver.deduce(this.nb, v.revealed, v.num, v.known, this.mineCount), out = [];
+      const p = Solver.probabilities(this.nb, v.revealed, v.num, v.known, this.mineCount);     // cells the exact count proves are mines (100%) too
       for (let i = 0; i < mine.length; i++) {
         const cell = this.cells[Math.floor(i / this.cols)][i % this.cols];
-        if (mine[i] && !cell.revealed && !cell.flagged) out.push(this._coords(i));
+        if ((mine[i] || (p[i] >= 0 && p[i] > 1 - EPS)) && !cell.revealed && !cell.flagged) out.push(this._coords(i));
       }
       return out;
+    }
+    // The first hidden cell whose exact mine chance passes test, or -1.
+    _byChance(v, test) {
+      const p = Solver.probabilities(this.nb, v.revealed, v.num, v.known, this.mineCount);
+      return p.findIndex((x, i) => x >= 0 && !v.revealed[i] && test(x));
     }
 
     // Mine chance for every hidden cell (see Solver.probabilities), as percentages 0-100 in a flat array (null = no
