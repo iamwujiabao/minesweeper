@@ -304,7 +304,7 @@ Results: 193 of 193 logic tests pass. The browser tests pass in Chrome, WebKit, 
 
 - Sound has no automated test and was never listened to. The phone results come from emulated devices, not a real phone.
 - On a phone the toolbar wraps onto several rows, so the board starts lower than on a desktop, and Expert scrolls sideways inside its card.
-- Boards that need a real guess cannot be finished by logic, so no-guess hints end there; the probability hint then shows the best odds, but it is still a guess. Very large frontiers stop the exact count at a node limit and show no percentages. Only about 8 percent of random Expert boards are fully solvable by logic.
+- Boards that need a real guess cannot be finished by logic, so no-guess hints end there; the probability hint then shows the best odds, but it is still a guess. Very large frontiers stop the exact count at a node limit and show no percentages. On 200 seeded Expert boards (first click in the middle) the logic rules alone finish about 8 percent, and following Hint, which also uses the exact count, finishes about 16 percent.
 - Two players share one screen (hot-seat); there is no network play. The computer opponent is the same solver, so it is a fair but not human-like player.
 - The five puzzles were picked by a program from generated boards and checked to be solvable by local logic within their move limit; they are not hand-designed. Checkpoints live in memory and are lost on reload.
 - No-guess boards are built after the first click, so they cannot be shared as links or used for the daily challenge.
@@ -345,7 +345,8 @@ The project was built in small steps, each a real commit made when that step wor
 | Back to plain scripts | 6916121 | Removed Vue, React and the build step because the assignment is plain HTML, CSS and JavaScript |
 | Patterns and documents | 4dd5248 | Command, Strategy, Memento and Observer made explicit; the ViewModel split into small classes; the stronger solver; the autosave cap; this report, the README and the GitHub Pages workflow |
 | Workflows | cb49365 | The GitHub Actions workflows: newer action versions, Node 22, a pinned runner |
-| Smarter help and progression | 3f5be76 | Probability hints, best guess, auto-flag, undo timeline and checkpoints, five new modes, more power-ups, coins and a shop, stars, missions, weekly challenge, ghost races |
+| Smarter help and progression | 3f5be76 | Probability hints, best guess, auto-flag, undo timeline and checkpoints, five new modes, more power-ups, coins and a shop, stars, missions, weekly challenge, ghost races || Report update | 2bb5a6e | Demo steps for the newer features, these Git rows, four new screenshots |
+| Hint fix | cc8f629 | Hint and Auto-flag use the exact chances (0 and 100 percent) when the logic finds nothing |
 
 The Vue and React views are still in the history: git checkout extras-vue-react-views shows them, and the commit message of 6916121 explains why they were removed.
 
